@@ -1,0 +1,102 @@
+# Note: This sample uses the deprecated NdlNetworkBuilder.
+#       An updated version using BrainScript is coming soon.
+#       Please find updated samples on Github, https://github.com/Microsoft/CNTK/tree/master/Examples /...
+#
+RootDir = "E:/TCC"
+
+ConfigDir = "$RootDir$/Source"
+DataDir = "$RootDir$/Datasets"
+OutputDir = "$RootDir$/Output"
+ModelDir = "$RootDir$/Models/CNTK"
+ModelOutputDir = "$OutputDir$/Models"
+
+ndlMacros="$DataDir$/Macros.ndl"
+
+precision="float"
+deviceId="Auto"
+
+command=CreateTrain:Train
+
+parallelTrain="false"
+shareNodeValueMatrices="true"
+hyperCompressMemory="true"
+
+stderr="$OutputDir$/ResNet_34"
+traceLevel=1
+numMBsToShowResult=10
+
+# Strides for increasing layers. Defaults (paper) are 2 for 1x1 and 1 for 3x3.
+stride1x1=1
+stride3x3=2
+
+CreateTrain=[    
+    action="edit"
+    CurModel="$ModelDir$/ResNet_34.model"
+    NewModel="$ModelOutputDir$/ResNet_34.0"
+    editPath="$ConfigDir$/CreateTrainModel.mel"
+]
+
+Train=[
+    action="train"
+    modelPath="$ModelOutputDir$/ResNet_34"
+
+     NDLNetworkBuilder=[
+        networkDescription="$ModelDir$/ResNet_34.ndl"
+    ]
+    
+    SGD=[
+		# Epoch set to half of the dataset size
+        epochSize=888271 
+        minibatchSize=256
+        learningRatesPerMb=0.01*4:0.001
+        momentumPerMB=0.9
+        maxEpochs=6
+        gradUpdateType="None"
+        L2RegWeight=0.0001
+        dropoutRate=0
+        
+        ParallelTrain=[
+            parallelizationMethod="DataParallelSGD"
+            distributedMBReading="true"
+            parallelizationStartEpoch=1
+            DataParallelSGD=[
+                gradientBits=32
+            ]
+        ]
+    ]
+    
+    reader=[
+        readerType="ImageReader"
+        file="$DataDir$/train_map.txt"
+        # Randomize images before every epoch. Possible values: None, Auto. Default: Auto.
+        randomize="Auto"
+        features=[
+            width=224
+            height=224
+            channels=3
+            hflip="true"
+            jitterType="UniRatio"
+            # Interpolation to use when scaling image to width x height size.
+            # Possible values: nearest, linear, cubic, lanczos. Default: linear.
+            interpolations="cubic"
+            # Aspect ratio jitter radius. Default is 0 (disabled).
+            aspectRatioRadius=0:0.2
+            # Brightness, contrast and color jittering. Default is 0 (disabled).
+            # Using 0 in the first epoch so the network can process original images.
+            brightnessRadius=0:0.2
+            contrastRadius=0:0.2
+            saturationRadius=0:0.4
+            # Intensity jittering: enabled if file is specified and intensityStdDev > 0. 
+            # The file stores 1x3 vector (eigenvalues) and 3x3 matrix (eigenvectors) in OpenCV XML format.
+            intensityFile="$DataDir$/ImageNet1K_intensity.xml"
+            # StdDev for intensity jittering. Start from the second epoch.
+            intensityStdDev=0:0.1
+            # Mean subtraction: enabled if file is specified.
+            # The file stores mean values for each pixel in OpenCV matrix XML format.
+            meanFile="$DataDir$/ImageNet1K_mean.xml"
+        ]
+        labels=[
+            labelDim=101
+        ]
+    ]    
+]
