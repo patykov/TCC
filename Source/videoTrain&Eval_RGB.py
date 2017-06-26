@@ -1,5 +1,5 @@
-from cntk import load_model, Trainer, UnitType, Axis
-from cntk.device import set_default_device, gpu, try_set_default_device
+from cntk import load_model, Trainer, UnitType, Axis, Constant
+from cntk.device import gpu, try_set_default_device
 from cntk.io import MinibatchSource, ImageDeserializer, StreamDef, StreamDefs
 import cntk.io.transforms as xforms
 from cntk.layers import Constant, Dense
@@ -45,7 +45,7 @@ class VideoReader(object):
 		self.video_files	 = []
 		self.targets		 = []
 		self.imageMean		 = self.readMean(mean_file)
-		self.myAuxList       = [None]*self.label_count
+		self.myAuxList		 = [None]*self.label_count
 
 		with open(map_file, 'r') as file:
 			for row in file:
@@ -83,8 +83,8 @@ class VideoReader(object):
 			for x in workList:
 				np.random.shuffle(x)
 		workList.sort(key=len, reverse=True)
-		aux = list(itertools.zip_longest(*workList))
-		self.indices = [x for x in itertools.chain(*list(itertools.zip_longest(*workList))) if x != None]
+		aux = list(itertools.izip_longest(*workList))
+		self.indices = [x for x in itertools.chain(*list(itertools.izip_longest(*workList))) if x != None]
 		
 	def readMean(self, image_path):
 		# load and format image (RGB -> BGR, CHW -> HWC)
@@ -141,19 +141,19 @@ class VideoReader(object):
 		
 		# Transformations
 		if self.is_training:
-			# w, h = self.getSizes(img, 256)                       # Get new size so the smallest side equals 256
-			# t1  = img.resize((w, h), Image.ANTIALIAS)            # Upscale so the min size equals 256
-			# t2  = self.randomCrop(t1, 256, 256)                  # Crop random 256 square
-			t3  = self.randomCrop(img, self.width, self.height)   # Crop random 224 square
-			img = self.randomHFlip(t3)                           # Random flip
+			# w, h = self.getSizes(img, 256)					   # Get new size so the smallest side equals 256
+			# t1  = img.resize((w, h), Image.ANTIALIAS)			   # Upscale so the min size equals 256
+			# t2  = self.randomCrop(t1, 256, 256)				   # Crop random 256 square
+			t3	= self.randomCrop(img, self.width, self.height)	  # Crop random 224 square
+			img = self.randomHFlip(t3)							 # Random flip
 		else:
 			img = img.resize((self.width, self.height), Image.ANTIALIAS)
 			
 		# Format image (RGB -> BGR, HWC -> CHW)
 		bgr_image = np.asarray(img, dtype=np.float32)[..., [2, 1, 0]]
 		chw_format = np.ascontiguousarray(np.rollaxis(bgr_image, 2))
-		image_data = self.colorTransform(chw_format, 0.2) - self.imageMean
-		image_data = chw_format - self.imageMean
+		image_data = self.colorTransform(chw_format, 0.2)
+		# image_data = chw_format - self.imageMean
 		return image_data
 
 	def randomCrop(self, img, newWidth, newHeight):
@@ -183,24 +183,19 @@ class VideoReader(object):
 	def colorTransform(self, imageArray, value):
 		randomValue = (2*value)*np.random.random_sample() - value
 		return imageArray*randomValue
-	
-	
-def find_arg_by_name(name, expression):
-	vars = [i for i in expression.arguments if i.name == name]
-	assert len(vars) == 1
-	return vars[0]
 
 # Create network model by updating last layer
-def create_model(base_model, last_hidden_node_name, feature_node_name, num_classes, input_features):
-	last_node    = find_by_name(base_model, last_hidden_node_name)
-	# feature_node = find_by_name(base_model, feature_node_name)
+def create_model(base_model, feature_node_name, last_hidden_node_name, num_classes, input_features):
+	feature_node = find_by_name(base_model, feature_node_name)
+	last_node	 = find_by_name(base_model, last_hidden_node_name)
 	
 	# Clone the desired layers
 	cloned_layers = combine([last_node.owner]).clone(
-		CloneMethod.clone, {input_features: placeholder(name='features')})
+		CloneMethod.clone, {feature_node: placeholder(name='features')})
 	
 	# Add new dense layer for class prediction
-	cloned_out = cloned_layers(input_features)
+	feat_norm  = input_features - Constant(114)
+	cloned_out = cloned_layers(feat_norm)
 	z		   = Dense(num_classes, activation=None, name='fc101') (cloned_out)
 	return z
 	
@@ -209,7 +204,7 @@ def train_model(network_path, train_reader, output_dir, log_file):
 	# Learning parameters
 	max_epochs = 537 # frames per each video | 9537 training videos on total
 	minibatch_size = 256
-	lr_per_mb = [0.01]*100 + [0.001]
+	lr_per_mb = [0.01]*376 + [0.001]
 	momentum_per_mb = 0.9
 	l2_reg_weight = 0.0001
 	
@@ -225,7 +220,7 @@ def train_model(network_path, train_reader, output_dir, log_file):
 		
 	# Create model
 	base_model	= load_model(network_path)
-	z = create_model(base_model, 'z.x', "features", num_classes, input_var)
+	z = create_model(base_model, 'features', 'z.x', num_classes, input_var)
 		
 	# Loss and metric
 	ce = cross_entropy_with_softmax(z, label_var)
@@ -247,6 +242,7 @@ def train_model(network_path, train_reader, output_dir, log_file):
 	trainer = Trainer(z, (ce, pe), learner, progress_writers)
 
 	with open(logFile, 'a') as file:
+		file.write('\nCorrecting lr_per_mb + Using const 114 as mean + Crop|Flip|Color')
 		file.write('\nMinibatch_size = {}\n'.format(minibatch_size))
 	
 	log_number_of_parameters(z) ; print()
@@ -260,7 +256,7 @@ def train_model(network_path, train_reader, output_dir, log_file):
 			sample_count += current_minibatch
 		
 		trainer.summarize_training_progress()
-		percent = (sample_count/(train_reader.size()*max_epochs))*100
+		percent = (float(sample_count)/(train_reader.size()*max_epochs))*100
 		print ("Processed {} samples. {:^5.2f}% of total".format(sample_count, percent))
 		if epoch%50 == 0:
 			z.save(os.path.join(output_dir, 'Models', "ResNet_34_{}.model".format(epoch)))
@@ -271,8 +267,8 @@ def train_model(network_path, train_reader, output_dir, log_file):
 def create_mb_source(image_height, image_width, num_channels, num_output_classes, mean_file, map_file):
 	transforms = [
 		xforms.scale(width=image_width, height=image_height, channels=num_channels, interpolations='linear'),
-		xforms.crop(crop_type='MultiView10'),
-		xforms.mean(mean_file)
+		xforms.crop(crop_type='MultiView10')
+		# xforms.mean(mean_file)
 	]
 	return MinibatchSource(ImageDeserializer(map_file, StreamDefs(
 		features=StreamDef(field='image', transforms=transforms),		# first column in map file is referred to as 'image'
@@ -321,11 +317,10 @@ def eval_and_write(loaded_model, minibatch_source, action_id, epoch_size):
 	
 
 if __name__ == '__main__':
-	# set_default_device(gpu(0))
-	try_set_default_device(gpu(0), acquire_device_lock=True)
+	try_set_default_device(gpu(0))
 
 	#For training
-	newModelName   = "ResNet34_newModel_videoTrainer_537epochs"
+	newModelName   = "ResNet34_videoRGB"
 	network_path   = os.path.join(models_dir, "ResNet34_ImageNet_CNTK.model")
 	train_map_file = os.path.join(data_dir, "ucfTrainTestlist", "trainlist01.txt")
 	mean_img_path  = os.path.join(data_dir, "meanImg.jpg")
@@ -336,7 +331,7 @@ if __name__ == '__main__':
 	#For evaluation
 	test_map_file  = os.path.join(data_dir, "TestMapFiles01_RGB")
 	mean_file_path = os.path.join(data_dir, "ImageNet1K_mean.xml")
-	output_file    = os.path.join(base_folder, "Results", "eval_{}.txt".format(newModelName))
+	output_file	   = os.path.join(base_folder, "Results", "eval_{}.txt".format(newModelName))
 	
 	### Training ###
 	if not os.path.exists(output_dir):

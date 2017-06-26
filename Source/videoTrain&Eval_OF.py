@@ -1,37 +1,39 @@
 from cntk import load_model, Trainer, UnitType, Axis
-from cntk.device import set_default_device, gpu, try_set_default_device
+from cntk.device import gpu, try_set_default_device
 from cntk.io import MinibatchSource, ImageDeserializer, StreamDef, StreamDefs
 import cntk.io.transforms as xforms
 from cntk.layers import Constant, Dense
 from cntk.learners import momentum_sgd, learning_rate_schedule, momentum_schedule
 from cntk.logging import ProgressPrinter, log_number_of_parameters
-from cntk.logging.graph import find_by_name
+from cntk.logging.graph import find_by_name, get_node_outputs
 from cntk.losses import cross_entropy_with_softmax
 from cntk.metrics import classification_error
 from cntk.ops import CloneMethod, combine, input_variable, placeholder, softmax, sequence
 import itertools
 import numpy as np
+import re
 import os
 from PIL import Image
+from resnet_models import *
 
 
 # Paths
 base_folder = "E:\TCC"
 models_dir	= os.path.join(base_folder, "Models")
 data_dir	= os.path.join(base_folder, "Datasets")
+temporary_data_dir = "D:\\"
 
 # Model dimensions
 image_height = 224
 image_width	 = 224
-num_channels = 3
+stack_length = 10
 num_classes	 = 101
-
 
 
 # Define the reader for both training and evaluation action.
 class VideoReader(object):
 
-	def __init__(self, map_file, dataDir, mean_file, image_width, image_height, num_channels, label_count, is_training):
+	def __init__(self, map_file, dataDir, image_width, image_height, stack_length, label_count):
 		'''
 		Load video file paths and their corresponding labels.
 		'''
@@ -39,18 +41,19 @@ class VideoReader(object):
 		self.label_count	 = label_count
 		self.width			 = image_width
 		self.height			 = image_height
-		self.sequence_length = 250
-		self.channel_count	 = num_channels
-		self.is_training	 = is_training
+		self.stack_length	 = stack_length
+		self.channel_count	 = 2*stack_length
+		self.flowRange       = 40.0
+		self.imageRange      = 255.0
 		self.video_files	 = []
 		self.targets		 = []
-		self.imageMean		 = self.readMean(mean_file)
-		self.myAuxList       = [None]*self.label_count
+		self.myAuxList		 = [None]*self.label_count
 
 		with open(map_file, 'r') as file:
 			for row in file:
 				[video_path, label] = row.replace('\n','').split(' ')
-				video_path = os.path.join(dataDir, video_path)
+				video_path = re.search('/(.*).avi', video_path).group(1)
+				video_path = os.path.join(dataDir, 'v', video_path)
 				self.video_files.append(video_path)
 				target = [0.0] * self.label_count
 				target[int(label)-1] = 1.0
@@ -60,8 +63,7 @@ class VideoReader(object):
 				else:
 					self.myAuxList[int(label)-1].append(len(self.targets)-1)
 
-		if self.is_training:
-			self.sequence_length = 1
+		self.sequence_length = 1
 		self.indices = np.arange(len(self.video_files))
 		self.reset()
 
@@ -79,19 +81,11 @@ class VideoReader(object):
 
 	def groupByTarget(self):
 		workList = self.myAuxList[::]
-		if self.is_training:
-			for x in workList:
-				np.random.shuffle(x)
+		for x in workList:
+			np.random.shuffle(x)
 		workList.sort(key=len, reverse=True)
-		aux = list(itertools.zip_longest(*workList))
-		self.indices = [x for x in itertools.chain(*list(itertools.zip_longest(*workList))) if x != None]
-		
-	def readMean(self, image_path):
-		# load and format image (RGB -> BGR, CHW -> HWC)
-		img = Image.open(image_path)
-		bgr_image = np.asarray(img, dtype=np.float32)[..., [2, 1, 0]]
-		hwc_format = np.ascontiguousarray(np.rollaxis(bgr_image, 2))
-		return hwc_format
+		aux = list(itertools.izip_longest(*workList))
+		self.indices = [x for x in itertools.chain(*list(itertools.izip_longest(*workList))) if x != None]
 		
 	def next_minibatch(self, batch_size):
 		'''
@@ -117,90 +111,50 @@ class VideoReader(object):
 		Select a sequence of frames from video_path and return them as a Tensor.
 		'''
 		frames = sorted(os.listdir(video_path))
-		selectedFrames = []
+		selectedFrame = np.random.choice(frames[:-self.stack_length])
+		frameId = frames.index(selectedFrame)
+		selectedFrames = [f for f in frames[frameId:frameId+self.stack_length]]
 
-		if self.is_training:
-			selectedFrames = [np.random.choice(frames)]
-		else:
-			length = self.sequence_length/10
-			ids = np.linspace(0, len(frames), num=length, dtype=np.int32, endpoint=False)
-			selectedFrames = [frames[i] for i in ids]
-		
-		selectedFrames = [os.path.join(video_path, f) for f in selectedFrames]
-		video_frames = [self._transform_frame(f) for f in selectedFrames]
-		
-		return video_frames #np.squeeze(video_frames)
-
-	def _transform_frame(self, image_path):
-		# load image
-		img = Image.open(image_path)
-		if image_path.endswith("png"):
-			temp = Image.new("RGB", img.size, (255, 255, 255))
-			temp.paste(img, img)
-			img = temp
-		
-		# Transformations
-		if self.is_training:
-			t1  = self.randomCrop(img, self.width, self.height)  # Crop random 224 square
-			img = self.randomHFlip(t1)                           # Random flip
-		else:
-			img = img.resize((self.width, self.height), Image.ANTIALIAS)
-			
-		# Format image (RGB -> BGR, HWC -> CHW)
-		bgr_image = np.asarray(img, dtype=np.float32)[..., [2, 1, 0]]
-		chw_format = np.ascontiguousarray(np.rollaxis(bgr_image, 2))
-		image_data = self.colorTransform(chw_format, 0.2) - self.imageMean
-		image_data = chw_format - self.imageMean
-		return image_data
-
-	def randomCrop(self, img, newWidth, newHeight):
+		img = Image.open(os.path.join(video_path,selectedFrame))
 		width = img.size[0]
 		height = img.size[1]
-		startWidth = (width - newWidth)*np.random.random_sample()
-		startHeight = (height - newHeight)*np.random.random_sample()
-		cropped = img.crop((startWidth, startHeight, 
-							startWidth+newWidth, startHeight+newHeight))
-		return cropped
-	
-	def randomHFlip(self, img):
+		startWidth = (width - 224)*np.random.random_sample()
+		startHeight = (height - 224)*np.random.random_sample()
 		chance = np.random.random()
-		if chance > 0.5:
-			img = img.transpose(Image.FLIP_LEFT_RIGHT)
-		return img
-	
-	def colorTransform(self, imageArray, value):
-		randomValue = (2*value)*np.random.random_sample() - value
-		return imageArray*randomValue
-	
-	
-def find_arg_by_name(name, expression):
-	vars = [i for i in expression.arguments if i.name == name]
-	assert len(vars) == 1
-	return vars[0]
+		img_array = []
+		for f in selectedFrames:
+			path_v = os.path.join(video_path, f)
+			path_u = path_v.replace('/v/', '/u/')
+		
+			img_v = Image.open(path_v)
+			img_u = Image.open(path_u)
+			
+			cropped_v = img_v.crop((startWidth, startHeight, startWidth+224, startHeight+224))
+			cropped_u = img_u.crop((startWidth, startHeight, startWidth+224, startHeight+224))
+			if chance > 0.5:
+				cropped_v = cropped_v.transpose(Image.FLIP_LEFT_RIGHT)
+				cropped_u = cropped_u.transpose(Image.FLIP_LEFT_RIGHT)
+			img_array.append(self.reescaleFlow(np.asarray(cropped_u, dtype=np.float32)))
+			img_array.append(self.reescaleFlow(np.asarray(cropped_v, dtype=np.float32)))
 
-# Create network model by updating last layer
-def create_model(base_model, last_hidden_node_name, feature_node_name, num_classes, input_features):
-	last_node    = find_by_name(base_model, last_hidden_node_name)
-	# feature_node = find_by_name(base_model, feature_node_name)
+		return img_array
 	
-	# Clone the desired layers
-	cloned_layers = combine([last_node.owner]).clone(
-		CloneMethod.clone, {input_features: placeholder(name='features')})
+	def reescaleFlow(self, flow):
+		newFlow = flow*(self.flowRange/self.imageRange) - self.flowRange/2
+		# Reduce mean flow
+		meanFlow = np.mean(newFlow)
+		return newFlow - meanFlow
 	
-	# Add new dense layer for class prediction
-	cloned_out = cloned_layers(input_features)
-	z		   = Dense(num_classes, activation=None, name='fc101') (cloned_out)
-	return z
-	
+
 # Trains a transfer learning model
-def train_model(network_path, train_reader, output_dir, log_file):
+def train_model(train_reader, output_dir, log_file):
 	# Learning parameters
-	max_epochs = 537 # frames per each video | 9537 training videos on total
+	max_epochs = 2147 # frames per each video | 9537 training videos on total
 	minibatch_size = 256
-	lr_per_mb = [0.01]*100 + [0.001]
+	lr_per_mb = [0.01]*1341 + [0.001]*538 + [0.0001]
 	momentum_per_mb = 0.9
 	l2_reg_weight = 0.0001
-	
+
 	# Image parameters
 	image_height = train_reader.height
 	image_width	 = train_reader.width
@@ -210,10 +164,9 @@ def train_model(network_path, train_reader, output_dir, log_file):
 	# Input variables
 	input_var = input_variable((num_channels, image_height, image_width))
 	label_var = input_variable(num_classes)
-		
-	# Create model
-	base_model	= load_model(network_path)
-	z = create_model(base_model, 'z.x', "features", num_classes, input_var)
+
+	# create model
+	z = create_resnet34(input_var, num_classes)
 		
 	# Loss and metric
 	ce = cross_entropy_with_softmax(z, label_var)
@@ -248,7 +201,7 @@ def train_model(network_path, train_reader, output_dir, log_file):
 			sample_count += current_minibatch
 		
 		trainer.summarize_training_progress()
-		percent = (sample_count/(train_reader.size()*max_epochs))*100
+		percent = (float(sample_count)/(train_reader.size()*max_epochs))*100
 		print ("Processed {} samples. {:^5.2f}% of total".format(sample_count, percent))
 		if epoch%50 == 0:
 			z.save(os.path.join(output_dir, 'Models', "ResNet_34_{}.model".format(epoch)))
@@ -309,63 +262,60 @@ def eval_and_write(loaded_model, minibatch_source, action_id, epoch_size):
 	
 
 if __name__ == '__main__':
-	# set_default_device(gpu(0))
-	try_set_default_device(gpu(0), acquire_device_lock=True)
+	try_set_default_device(gpu(0))
 
 	#For training
-	newModelName   = "ResNet34_videoOF_537epochs"
-	network_path   = os.path.join(models_dir, "ResNet34_ImageNet_CNTK.model")
+	newModelName   = "ResNet34_videoOF"
 	train_map_file = os.path.join(data_dir, "ucfTrainTestlist", "trainlist01.txt")
-	mean_img_path  = os.path.join(data_dir, "meanImg.jpg")
-	frames_dir	   = os.path.join(data_dir, "UCF-101_opticalFlow")
+	frames_dir	   = os.path.join(temporary_data_dir, "UCF-101_opticalFlow")
 	new_model_file = os.path.join(models_dir, newModelName)
 	output_dir	   = os.path.join(base_folder, "Output-{}".format(newModelName))
 	logFile		   = os.path.join(output_dir, "ResNet34_log.txt")
 	#For evaluation
-	test_map_file  = os.path.join(data_dir, "TestMapFiles01_RGB")
-	mean_file_path = os.path.join(data_dir, "ImageNet1K_mean.xml")
-	output_file    = os.path.join(base_folder, "Results", "eval_{}.txt".format(newModelName))
+	# test_map_file	 = os.path.join(data_dir, "TestMapFiles01_RGB")
+	# mean_file_path = os.path.join(data_dir, "ImageNet1K_mean.xml")
+	# output_file	 = os.path.join(base_folder, "Results", "eval_{}.txt".format(newModelName))
 	
 	### Training ###
 	if not os.path.exists(output_dir):
 		os.mkdir(output_dir)
 	
-	train_reader = VideoReader(train_map_file, frames_dir, mean_img_path, image_width, image_height, num_channels, 
-									num_classes, is_training=True)
-	trained_model = train_model(network_path, train_reader, output_dir, logFile)
+	train_reader = VideoReader(train_map_file, frames_dir, image_width, image_height, 
+								stack_length, num_classes)
+	trained_model = train_model(train_reader, output_dir, logFile)
 	
 	trained_model.save(new_model_file)
 	print("Stored trained model at %s" % new_model_file)
 	
 	
 	### Evaluation ###
-	if (os.path.exists(output_file)):
-		raise Exception('The file {} already exist.'.format(output_file))
+	# if (os.path.exists(output_file)):
+		# raise Exception('The file {} already exist.'.format(output_file))
 
-	#Get all test map files
-	map_files = sorted(os.listdir(test_map_file))
-	with open(output_file, 'a') as results_file:
-		results_file.write('{:<15} | {:<15} | {:<15}\n'.format('Correct label', 'Predicted label', 'Confidence'))
+	# Get all test map files
+	# map_files = sorted(os.listdir(test_map_file))
+	# with open(output_file, 'a') as results_file:
+		# results_file.write('{:<15} | {:<15} | {:<15}\n'.format('Correct label', 'Predicted label', 'Confidence'))
 	
-	myResults = []
-	for test_file in map_files:
-		action_id = test_file.split('_')[-1][:-4]
-		file_path = os.path.join(test_map_file, test_file)
-		minibatch_source = create_mb_source(image_height, image_width, num_channels, num_classes, 
-												mean_file_path, file_path)
+	# myResults = []
+	# for test_file in map_files:
+		# action_id = test_file.split('_')[-1][:-4]
+		# file_path = os.path.join(test_map_file, test_file)
+		# minibatch_source = create_mb_source(image_height, image_width, num_channels, num_classes, 
+												# mean_file_path, file_path)
 		# evaluate model and write out the desired output
-		result = eval_and_write(trained_model, minibatch_source, action_id, epoch_size=250)	  # 25 frames for that result in 250 inputs for the network
-		myResults.append(result)
-		if len(myResults) >= 100:
-			with open(output_file, 'a') as results_file:
-				for result in myResults:
-					results_file.write(result)
-			myResults = []
+		# result = eval_and_write(trained_model, minibatch_source, action_id, epoch_size=250)	  # 25 frames for that result in 250 inputs for the network
+		# myResults.append(result)
+		# if len(myResults) >= 100:
+			# with open(output_file, 'a') as results_file:
+				# for result in myResults:
+					# results_file.write(result)
+			# myResults = []
 		
 	# Saving the myResults < 100 left
-	with open(output_file, 'a') as results_file:
-		for result in myResults:
-			results_file.write(result)
+	# with open(output_file, 'a') as results_file:
+		# for result in myResults:
+			# results_file.write(result)
 
-	print("Done. Wrote output to %s" % output_file)
+	# print("Done. Wrote output to %s" % output_file)
 
