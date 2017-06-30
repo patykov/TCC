@@ -16,7 +16,7 @@ from PIL import Image
 
 
 # Paths
-base_folder = "E:\TCC"
+base_folder = "F:\TCC"
 models_dir	= os.path.join(base_folder, "Models")
 data_dir	= os.path.join(base_folder, "Datasets")
 
@@ -37,8 +37,8 @@ class VideoReader(object):
 		'''
 		self.map_file		 = map_file
 		self.label_count	 = label_count
-		self.width			 = image_width
-		self.height			 = image_height
+		self.width           = image_width
+		self.height          = image_height
 		self.sequence_length = 250
 		self.channel_count	 = num_channels
 		self.is_training	 = is_training
