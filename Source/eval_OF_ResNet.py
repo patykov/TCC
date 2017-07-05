@@ -21,7 +21,6 @@ from resnet_models import *
 base_folder = "F:\TCC"
 models_dir	= os.path.join(base_folder, "Models")
 data_dir	= os.path.join(base_folder, "Datasets")
-temporary_data_dir = "D:\\"
 
 # Model dimensions
 image_height = 224
@@ -307,7 +306,6 @@ def eval_and_write(loaded_model, test_reader, output_file):
 						predictedLabels[top_class] = 1
 						labelsConfidence[top_class] = predictions[top_class] * 100
 				label, confidence = getFinalLabel(predictedLabels, labelsConfidence)
-				# newResult += '{:^15} | {:^15.2f}%\n'.format(label, confidence)
 				file.write('{:^15} | {:^15} | {:^15.2f}%\n'.format(correctLabel, label, confidence))
 	
 
@@ -327,18 +325,18 @@ if __name__ == '__main__':
 	output_file	 = os.path.join(base_folder, "Results", "eval_{}.txt".format(newModelName))
 	
 	### Training ###
-	if not os.path.exists(output_dir):
-		os.mkdir(output_dir)
+	# if not os.path.exists(output_dir):
+		# os.mkdir(output_dir)
 	
-	train_reader = VideoReader(train_map_file, frames_dir, image_width, image_height, 
-								stack_length, num_classes, is_training=True)
-	trained_model = train_model(train_reader, output_dir, logFile)
+	# train_reader = VideoReader(train_map_file, frames_dir, image_width, image_height, 
+								# stack_length, num_classes, is_training=True)
+	# trained_model = train_model(train_reader, output_dir, logFile)
 	
-	trained_model.save(new_model_file)
-	print("Stored trained model at %s" % new_model_file)
+	# trained_model.save(new_model_file)
+	# print("Stored trained model at %s" % new_model_file)
 	
-	# test_model = os.path.join(output_dir, "Models", "ResNet_34_500.model")
-	# trained_model = load_model(test_model)
+	test_model = os.path.join(output_dir, "Models", "ResNet_34_800.model")
+	trained_model = load_model(test_model)
 	### Evaluation ###
 	if (os.path.exists(output_file)):
 		raise Exception('The file {} already exist.'.format(output_file))
