@@ -164,12 +164,14 @@ class VideoReader(object):
 		width = img.size[0]
 		height = img.size[1]
 		video_array = []
+		# 1 for training, 25 for testing
 		for imgStack in videoStack:
 			startWidth = (width - 224)*np.random.random_sample()
 			startHeight = (height - 224)*np.random.random_sample()
 			chance = np.random.random()
-			img_array = []
+			seq_array = []
 			stack_array = []
+			# 10 frames in the stack
 			for path_v in imgStack:
 				path_u = path_v.replace('/v/', '/u/')
 				img_u = Image.open(path_u)
@@ -183,12 +185,14 @@ class VideoReader(object):
 					stack_array.append(self.reescaleFlow(np.asarray(cropped_u, dtype=np.float32)))
 					stack_array.append(self.reescaleFlow(np.asarray(cropped_v, dtype=np.float32)))
 				else: 
-					img_array.append([cropped_u, cropped_v])
+					seq_array.append([cropped_u, cropped_v])
+			# Adding stack for trainig
 			if self.is_training:
 				video_array.append(stack_array)
+			# Making 10 stacks and adding them for testing
 			else:
 				for f_id in range(10):
-					for [u, v] in img_array:
+					for [u, v] in seq_array:
 						if f_id != 0:
 							u = self.multiView[f_id -1](u)
 							v = self.multiView[f_id -1](v)
@@ -287,13 +291,14 @@ def getFinalLabel(predictedLabels, labelsConfidence):
 # Evaluate network and writes output to file
 def eval_and_write(loaded_model, test_reader, output_file):
 	sample_count = 0
-	predictedLabels = dict()
-	labelsConfidence = dict()
 	with open(output_file, 'a') as file:
 		while sample_count < test_reader.size():
 			videos_, labels_, current_minibatch = test_reader.next_minibatch(1)
 			sample_count += current_minibatch
+			results = ''
 			for labels, videos in zip(labels_, videos_):
+				predictedLabels = dict()
+				labelsConfidence = dict()
 				correctLabel = [j for j,v in enumerate(labels[0]) if v==1.0][0]
 				for i, video in enumerate(videos):
 					output = loaded_model.eval({loaded_model.arguments[0]:video})
@@ -305,8 +310,10 @@ def eval_and_write(loaded_model, test_reader, output_file):
 					else:
 						predictedLabels[top_class] = 1
 						labelsConfidence[top_class] = predictions[top_class] * 100
+					# print('{:^15} | {:^15} | {:^15.2f}%\n'.format(correctLabel, top_class, predictions[top_class]*100))
 				label, confidence = getFinalLabel(predictedLabels, labelsConfidence)
-				file.write('{:^15} | {:^15} | {:^15.2f}%\n'.format(correctLabel, label, confidence))
+				results += '{:^15} | {:^15} | {:^15.2f}%\n'.format(correctLabel, label, confidence)
+			file.write(results)
 	
 
 if __name__ == '__main__':
@@ -322,7 +329,8 @@ if __name__ == '__main__':
 	#For evaluation
 	test_map_file	 = os.path.join(data_dir, "ucfTrainTestlist", "testlist01.txt")
 	class_map_file   = os.path.join(data_dir, "ucfTrainTestlist", "classInd.txt")
-	output_file	 = os.path.join(base_folder, "Results", "eval_{}.txt".format(newModelName))
+	# output_file	 = os.path.join(base_folder, "Results", "eval_{}.txt".format(newModelName))
+	output_file	 = os.path.join(base_folder, "Results", "eval_ResNet34_videoOF-testFile-asTesting.txt")
 	
 	### Training ###
 	# if not os.path.exists(output_dir):
