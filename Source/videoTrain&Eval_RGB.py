@@ -37,8 +37,8 @@ class VideoReader(object):
 		'''
 		self.map_file		 = map_file
 		self.label_count	 = label_count
-		self.width           = image_width
-		self.height          = image_height
+		self.width			 = image_width
+		self.height			 = image_height
 		self.sequence_length = 250
 		self.channel_count	 = num_channels
 		self.is_training	 = is_training
@@ -276,21 +276,45 @@ def create_mb_source(image_height, image_width, num_channels, num_output_classes
 		randomize=False)
 
 # Get the video label based on its frames evaluations
-def getFinalLabel(predictedLabels, labelsConfidence):
-	maxCount = max(predictedLabels.values())
-	top_labels = [label for label in predictedLabels.keys() if predictedLabels[label]==maxCount]
+# def getFinalLabel(predictedLabels, labelsConfidence):
+	# maxCount = max(predictedLabels.values())
+	# top_labels = [label for label in predictedLabels.keys() if predictedLabels[label]==maxCount]
 	# Only one label, return it
-	if (len(top_labels) == 1):
-		confidence = labelsConfidence[top_labels[0]]/maxCount
+	# if (len(top_labels) == 1):
+		# confidence = labelsConfidence[top_labels[0]]/maxCount
 	# 2 or more labels, need to check confidence
-	else:
-		topConfidence = dict()
-		for label in top_labels:
-			topConfidence[label] = labelsConfidence[label]/maxCount
-		confidence = max(topConfidence.values())
-		top_labels = [label for label in topConfidence.keys() if topConfidence[label]==confidence]
-	return top_labels[0], confidence
+	# else:
+		# topConfidence = dict()
+		# for label in top_labels:
+			# topConfidence[label] = labelsConfidence[label]/maxCount
+		# confidence = max(topConfidence.values())
+		# top_labels = [label for label in topConfidence.keys() if topConfidence[label]==confidence]
+	# return top_labels[0], confidence
 
+# Evaluate network and writes output to file
+# def eval_and_write(loaded_model, minibatch_source, action_id, epoch_size):
+	# evaluate model and get desired node output
+	# features_si = minibatch_source['features']
+	# sample_count = 0
+	# predictedLabels = dict()
+	# labelsConfidence = dict()
+	# newResult = '{:^15} | '.format(action_id)
+	# while sample_count < epoch_size:
+		# mb = minibatch_source.next_minibatch(1)
+		# output = loaded_model.eval({loaded_model.arguments[0]:mb[features_si]})
+		# sample_count += mb[features_si].num_samples
+		# predictions = softmax(np.squeeze(output)).eval()
+		# top_class = np.argmax(predictions)
+		# if top_class in predictedLabels.keys():
+			# predictedLabels[top_class] += 1
+			# labelsConfidence[top_class] += predictions[top_class] * 100
+		# else:
+			# predictedLabels[top_class] = 1
+			# labelsConfidence[top_class] = predictions[top_class] * 100
+	# label, confidence = getFinalLabel(predictedLabels, labelsConfidence)
+	# newResult += '{:^15} | {:^15.2f}%\n'.format(label, confidence)
+	# return newResult
+	
 # Evaluate network and writes output to file
 def eval_and_write(loaded_model, minibatch_source, action_id, epoch_size):
 	# evaluate model and get desired node output
@@ -299,20 +323,16 @@ def eval_and_write(loaded_model, minibatch_source, action_id, epoch_size):
 	predictedLabels = dict()
 	labelsConfidence = dict()
 	newResult = '{:^15} | '.format(action_id)
+	predictionsSum = [0]*num_classes
 	while sample_count < epoch_size:
 		mb = minibatch_source.next_minibatch(1)
 		output = loaded_model.eval({loaded_model.arguments[0]:mb[features_si]})
 		sample_count += mb[features_si].num_samples
-		predictions = softmax(np.squeeze(output)).eval()
-		top_class = np.argmax(predictions)
-		if top_class in predictedLabels.keys():
-			predictedLabels[top_class] += 1
-			labelsConfidence[top_class] += predictions[top_class] * 100
-		else:
-			predictedLabels[top_class] = 1
-			labelsConfidence[top_class] = predictions[top_class] * 100
-	label, confidence = getFinalLabel(predictedLabels, labelsConfidence)
-	newResult += '{:^15} | {:^15.2f}%\n'.format(label, confidence)
+		predictions = np.squeeze(output)
+		predictionsSum += predictions
+	predictionsMean = predictionsSum/np.mean(predictionsSum)
+	top_class = np.argmax(softmax(predictionsMean).eval())
+	newResult += '{:^15}\n'.format(top_class)
 	return newResult
 	
 
@@ -334,17 +354,18 @@ if __name__ == '__main__':
 	output_file	   = os.path.join(base_folder, "Results", "eval_{}.txt".format(newModelName))
 	
 	### Training ###
-	if not os.path.exists(output_dir):
-		os.mkdir(output_dir)
+	# if not os.path.exists(output_dir):
+		# os.mkdir(output_dir)
 	
-	train_reader = VideoReader(train_map_file, frames_dir, mean_img_path, image_width, image_height, num_channels, 
-									num_classes, is_training=True)
-	trained_model = train_model(network_path, train_reader, output_dir, logFile)
+	# train_reader = VideoReader(train_map_file, frames_dir, mean_img_path, image_width, image_height, num_channels, 
+									# num_classes, is_training=True)
+	# trained_model = train_model(network_path, train_reader, output_dir, logFile)
 	
-	trained_model.save(new_model_file)
-	print("Stored trained model at %s" % new_model_file)
+	# trained_model.save(new_model_file)
+	# print("Stored trained model at %s" % new_model_file)
 	
-	
+	test_model = os.path.join("F:\TCC\Outputs\Output-ResNet34_RGB_74.28\Models\ResNet_34_530.model")
+	trained_model = load_model(test_model)
 	### Evaluation ###
 	if (os.path.exists(output_file)):
 		raise Exception('The file {} already exist.'.format(output_file))
@@ -352,7 +373,7 @@ if __name__ == '__main__':
 	#Get all test map files
 	map_files = sorted(os.listdir(test_map_file))
 	with open(output_file, 'a') as results_file:
-		results_file.write('{:<15} | {:<15} | {:<15}\n'.format('Correct label', 'Predicted label', 'Confidence'))
+		results_file.write('{:<15} | {:<15}\n'.format('Correct label', 'Predicted label'))
 	
 	myResults = []
 	for test_file in map_files:

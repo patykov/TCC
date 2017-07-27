@@ -1,0 +1,14 @@
+CNTK Performance Profiler Summary Report
+
+Time Stamp: 2017/07/23 12:58:37
+
+Description................ ............Mean ..........StdDev .............Min .............Max ...........Count ...........Total
+
+Main Thread
+
+_Minibatch Iteration      :      5993.321 ms       717.054 ms      1606.987 ms      6527.584 ms            29450     49:01:43.293
+__Forward + Backward      :      5983.323 ms       717.022 ms      1596.771 ms      6518.221 ms            29450     48:56:48.849
+__Weight Update           :         9.284 ms         1.410 ms         8.846 ms       111.218 ms            29450     00:04:33.415
+
+Data Reader
+

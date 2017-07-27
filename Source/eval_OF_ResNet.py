@@ -1,18 +1,17 @@
-from cntk import load_model, Trainer, UnitType, Axis
+from cntk import load_model, Trainer, UnitType
+from cntk.debugging import start_profiler, stop_profiler, enable_profiler
 from cntk.device import gpu, try_set_default_device
-from cntk.io import MinibatchSource, ImageDeserializer, StreamDef, StreamDefs
-import cntk.io.transforms as xforms
-from cntk.layers import Constant, Dense
+from cntk.io import StreamDef
 from cntk.learners import momentum_sgd, learning_rate_schedule, momentum_schedule
 from cntk.logging import ProgressPrinter, log_number_of_parameters
 from cntk.logging.graph import find_by_name, get_node_outputs
 from cntk.losses import cross_entropy_with_softmax
 from cntk.metrics import classification_error
-from cntk.ops import CloneMethod, combine, input_variable, placeholder, softmax, sequence
+from cntk.ops import input_variable, softmax, sequence
 import itertools
 import numpy as np
-import re
 import os
+import re
 from PIL import Image
 from resnet_models import *
 
@@ -39,16 +38,16 @@ class VideoReader(object):
 		'''
 		self.map_file		 = map_file
 		self.label_count	 = label_count
-		self.width           = image_width
-		self.height          = image_height
+		self.width			 = image_width
+		self.height			 = image_height
 		self.sequence_length = 250
-		self.is_training     = is_training
-		self.multiView       = self.getMultiView()
+		self.is_training	 = is_training
+		self.multiView		 = self.getMultiView()
 		self.stack_length	 = stack_length
 		self.channel_count	 = 2*stack_length
-		self.flowRange       = 40.0
-		self.imageRange      = 255.0
-		self.reescaleFlow   = self.getFlowReescale()
+		self.flowRange		 = 40.0
+		self.imageRange		 = 255.0
+		self.reescaleFlow	= self.getFlowReescale()
 		self.video_files	 = []
 		self.targets		 = []
 		self.myAuxList		 = [None]*self.label_count
@@ -189,7 +188,7 @@ class VideoReader(object):
 			img = Image.open(frameStack[0])
 			width  = img.size[0]
 			height = img.size[1]
-			startWidth  = (width - 224)*np.random.random_sample()
+			startWidth	= (width - 224)*np.random.random_sample()
 			startHeight = (height - 224)*np.random.random_sample()
 			flipChance = np.random.random()
 			stack_array = []
@@ -251,9 +250,9 @@ class VideoReader(object):
 # Trains a transfer learning model
 def train_model(train_reader, output_dir, log_file):
 	# Learning parameters
-	max_epochs = 2147 # frames per each video | 9537 training videos on total
-	minibatch_size = 256
-	lr_per_mb = [0.01]*1341 + [0.001]*538 + [0.0001]
+	max_epochs		= 2147 # frames per each video | 9537 training videos on total
+	minibatch_size	= 256
+	lr_per_mb		= [0.01]*1341 + [0.001]*538 + [0.0001]
 	momentum_per_mb = 0.9
 	l2_reg_weight = 0.0001
 
@@ -272,9 +271,8 @@ def train_model(train_reader, output_dir, log_file):
 	# z = load_model('F:\TCC\Output-ResNet34_videoOF\Models\ResNet_34_800_trainer.dnn')
 	# node_outputs = get_node_outputs(z)
 	# for out in node_outputs: print("{0} {1}".format(out.name, out.shape))
-	for index in range(len(z.outputs)):
-		print("Index {} for output: {} | {}.".format(index, z.outputs[index].name, z.outputs[index].shape))
-
+	# for index in range(len(z.outputs)):
+		# print("Index {} for output: {} | {}.".format(index, z.outputs[index].name, z.outputs[index].shape))
 		
 	# Loss and metric
 	ce = cross_entropy_with_softmax(z, label_var)
@@ -286,38 +284,44 @@ def train_model(train_reader, output_dir, log_file):
 											unit=UnitType.sample)
 	mm_schedule = momentum_schedule(momentum_per_mb)
 
-	# Progress writers
-	progress_writers = [ProgressPrinter(tag='Training', num_epochs=max_epochs, 
-						log_to_file=log_file, freq=10)]
+	# Printer
+	progress_printer = ProgressPrinter(freq=10, tag='Training', log_to_file=log_file, num_epochs=max_epochs)
+	with open(logFile, 'a') as file:
+		file.write('\nMinibatch_size = {}\n'.format(minibatch_size))
 
 	# Trainer object
 	learner = momentum_sgd(z.parameters, lr_schedule, mm_schedule, 
 							l2_regularization_weight = l2_reg_weight)
-	trainer = Trainer(z, (ce, pe), learner, progress_writers)
-	trainer.restore_from_checkpoint('F:\TCC\Output-ResNet34_videoOF\Models\ResNet_34_800_trainer.dnn')
-	z = trainer.model
+	trainer = Trainer(z, (ce, pe), learner, progress_printer)
 
-	with open(logFile, 'a') as file:
-		file.write('\nMinibatch_size = {}\n'.format(minibatch_size))
-	
-	log_number_of_parameters(z) ; print()
-	
+	# Restore training and get last sample_count and last_epoch
+	last_trained_model = 'F:\TCC\Outputs\Output-ResNet34_videoOF-continuing2\Models\ResNet_34_1370_trainer.dnn'
+	trainer.restore_from_checkpoint(last_trained_model)
+	z = trainer.model
+   
 	sample_count = trainer.total_number_of_samples_seen
 	last_epoch = sample_count/train_reader.size()
-	print('Total number of samples seen: {} | Last epoch: {}'.format(sample_count, last_epoch))
-	for epoch in range(last_epoch, max_epochs):		  # loop over epochs
+	print('Total number of samples seen: {} | Last epoch: {}\n'.format(sample_count, last_epoch))
+	
+	# Start training
+	start_profiler()
+	for epoch in range(last_epoch, max_epochs):	 # loop over epochs
 		train_reader.reset()
-		while train_reader.has_more():	  # loop over minibatches in the epoch
+		while train_reader.has_more():			 # loop over minibatches in the epoch
 			videos, labels, current_minibatch = train_reader.next_minibatch(minibatch_size)
 			trainer.train_minibatch({input_var : videos, label_var : labels})
 			sample_count += current_minibatch
-		
 		trainer.summarize_training_progress()
+		enable_profiler() # begin to collect profiler data after first epoch
+		
+		# Save checkpoint and model		
 		percent = (float(sample_count)/(train_reader.size()*max_epochs))*100
 		print ("Processed {} samples. {:^5.2f}% of total".format(sample_count, percent))
-		if epoch%50 == 0:
+		if epoch%10 == 0:
 			z.save(os.path.join(output_dir, 'Models', "ResNet_34_{}.model".format(epoch)))
 			trainer.save_checkpoint(os.path.join(output_dir, 'Models', "ResNet_34_{}_trainer.dnn".format(epoch)))
+	stop_profiler()
+	
 	return z
 
 # Evaluate network and writes output to file
@@ -345,7 +349,7 @@ if __name__ == '__main__':
 	try_set_default_device(gpu(0))
 
 	#For training
-	newModelName   = "ResNet34_videoOF-continuing"
+	newModelName   = "ResNet34_videoOF-continuing3"
 	train_map_file = os.path.join(data_dir, "ucfTrainTestlist", "trainlist01.txt")
 	frames_dir	   = os.path.join(data_dir, "UCF-101_opticalFlow")
 	new_model_file = os.path.join(models_dir, newModelName)
@@ -353,22 +357,22 @@ if __name__ == '__main__':
 	logFile		   = os.path.join(output_dir, "ResNet34_log.txt")
 	#For evaluation
 	test_map_file	 = os.path.join(data_dir, "ucfTrainTestlist", "testlist01.txt")
-	class_map_file   = os.path.join(data_dir, "ucfTrainTestlist", "classInd.txt")
+	class_map_file	 = os.path.join(data_dir, "ucfTrainTestlist", "classInd.txt")
 	output_file	 = os.path.join(base_folder, "Results", "eval_{}.txt".format(newModelName))
 	
 	### Training ###
-	# if not os.path.exists(output_dir):
-		# os.mkdir(output_dir)
+	if not os.path.exists(output_dir):
+		os.mkdir(output_dir)
 	
-	# train_reader = VideoReader(train_map_file, frames_dir, image_width, image_height, stack_length, 
-								# num_classes, is_training=True)
-	# trained_model = train_model(train_reader, output_dir, logFile)
+	train_reader = VideoReader(train_map_file, frames_dir, image_width, image_height, stack_length, 
+								num_classes, is_training=True)
+	trained_model = train_model(train_reader, output_dir, logFile)
 	
-	# trained_model.save(new_model_file)
-	# print("Stored trained model at %s" % new_model_file)
+	trained_model.save(new_model_file)
+	print("Stored trained model at %s" % new_model_file)
 	
-	test_model = os.path.join("F:\TCC\Outputs\Output-ResNet34_videoOF-continuing\Models", "ResNet_34_50.model")
-	trained_model = load_model(test_model)
+	# test_model = os.path.join("F:\TCC\Outputs\Output-ResNet34_videoOF-continuing\Models", "ResNet_34_50.model")
+	# trained_model = load_model(test_model)
 	## Evaluation ###
 	if (os.path.exists(output_file)):
 		raise Exception('The file {} already exist.'.format(output_file))
