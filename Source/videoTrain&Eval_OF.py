@@ -1,18 +1,17 @@
-from cntk import load_model, Trainer, UnitType, Axis
+from cntk import load_model, Trainer, UnitType
+from cntk.debugging import start_profiler, stop_profiler, enable_profiler
 from cntk.device import gpu, try_set_default_device
-from cntk.io import MinibatchSource, ImageDeserializer, StreamDef, StreamDefs
-import cntk.io.transforms as xforms
-from cntk.layers import Constant, Dense
+from cntk.io import StreamDef
 from cntk.learners import momentum_sgd, learning_rate_schedule, momentum_schedule
 from cntk.logging import ProgressPrinter, log_number_of_parameters
 from cntk.logging.graph import find_by_name, get_node_outputs
 from cntk.losses import cross_entropy_with_softmax
 from cntk.metrics import classification_error
-from cntk.ops import CloneMethod, combine, input_variable, placeholder, softmax, sequence
+from cntk.ops import input_variable, softmax, sequence
 import itertools
 import numpy as np
-import re
 import os
+import re
 from PIL import Image
 from resnet_models import *
 
@@ -21,19 +20,19 @@ from resnet_models import *
 base_folder = "F:\TCC"
 models_dir	= os.path.join(base_folder, "Models")
 data_dir	= os.path.join(base_folder, "Datasets")
-temporary_data_dir = "D:\\"
 
 # Model dimensions
-image_height = 224
-image_width	 = 224
-stack_length = 10
-num_classes	 = 101
+image_height  = 224
+image_width	  = 224
+stack_length  = 10
+num_classes	  = 101
 
 
 # Define the reader for both training and evaluation action.
 class VideoReader(object):
 
-	def __init__(self, map_file, dataDir, image_width, image_height, stack_length, label_count):
+	def __init__(self, map_file, dataDir, image_width, image_height, stack_length, 
+					label_count, is_training=True, classMapFile=None):
 		'''
 		Load video file paths and their corresponding labels.
 		'''
@@ -41,17 +40,34 @@ class VideoReader(object):
 		self.label_count	 = label_count
 		self.width			 = image_width
 		self.height			 = image_height
+		self.sequence_length = 250
+		self.is_training	 = is_training
+		self.multiView		 = self.getMultiView()
 		self.stack_length	 = stack_length
 		self.channel_count	 = 2*stack_length
-		self.flowRange       = 40.0
-		self.imageRange      = 255.0
+		self.flowRange		 = 40.0
+		self.imageRange		 = 255.0
+		self.reescaleFlow	= self.getFlowReescale()
 		self.video_files	 = []
 		self.targets		 = []
 		self.myAuxList		 = [None]*self.label_count
 
+		if self.is_training:
+			self.sequence_length = 1
+		else:
+			# Getting class id for test files
+			self.classMap = dict()
+			with open(classMapFile, 'r') as file:
+				for line in file:
+					[label, className] = line.replace('\n', '').split(' ')
+					self.classMap[className] = label
+		
 		with open(map_file, 'r') as file:
 			for row in file:
-				[video_path, label] = row.replace('\n','').split(' ')
+				if self.is_training:
+					[video_path, label] = row.replace('\n','').split(' ')
+				else:
+					video_path, label = self.getTestClass(row)
 				video_path = re.search('/(.*).avi', video_path).group(1)
 				video_path = os.path.join(dataDir, 'v', video_path)
 				self.video_files.append(video_path)
@@ -63,10 +79,14 @@ class VideoReader(object):
 				else:
 					self.myAuxList[int(label)-1].append(len(self.targets)-1)
 
-		self.sequence_length = 1
 		self.indices = np.arange(len(self.video_files))
 		self.reset()
 
+	def getTestClass(self, row):
+		lineClass = row.split('/')[0]
+		label = self.classMap[lineClass]
+		return row.replace('\n', ''), label
+		
 	def size(self):
 		return len(self.video_files)
 			
@@ -81,11 +101,45 @@ class VideoReader(object):
 
 	def groupByTarget(self):
 		workList = self.myAuxList[::]
-		for x in workList:
-			np.random.shuffle(x)
+		if self.is_training:
+			for x in workList:
+				np.random.shuffle(x)
 		workList.sort(key=len, reverse=True)
 		aux = list(itertools.izip_longest(*workList))
 		self.indices = [x for x in itertools.chain(*list(itertools.izip_longest(*workList))) if x != None]
+
+	def getFlowReescale(self):
+		return lambda x: x*(self.flowRange/self.imageRange) - self.flowRange/2
+		
+	def getMultiView(self):
+		img1 = lambda x: x.crop((x.size[0]/2 - self.width/2, x.size[1]/2 - self.height/2, 
+								x.size[0]/2 + self.width/2, x.size[1]/2 + self.height/2)) # center
+		img2 = lambda x: x.crop((0, 0, 
+								self.width, self.height)) # top left
+		img3 = lambda x: x.crop((0, x.size[1] - self.height, 
+								self.width, x.size[1])) # bottom left
+		img4 = lambda x: x.crop((x.size[0] - self.width, 0, 
+								x.size[0], self.height)) #top right
+		img5 = lambda x: x.crop((x.size[0] - self.width, x.size[1] - self.height, 
+								x.size[0], x.size[1])) # bottom right
+		# Flipped
+		img6 = lambda x: x.transpose(Image.FLIP_LEFT_RIGHT).crop(
+								(x.size[0]/2 - self.width/2, x.size[1]/2 - self.height/2, 
+								x.size[0]/2 + self.width/2, x.size[1]/2 + self.height/2)) # flip center
+		img7 = lambda x: x.transpose(Image.FLIP_LEFT_RIGHT).crop(
+								(0, 0, 
+								self.width, self.height)) # flip top left
+		img8 = lambda x: x.transpose(Image.FLIP_LEFT_RIGHT).crop(
+								(0, x.size[1] - self.height, 
+								self.width, x.size[1])) # flip bottom left
+		img9 = lambda x: x.transpose(Image.FLIP_LEFT_RIGHT).crop(
+								(x.size[0] - self.width, 0, 
+								x.size[0], self.height)) # flip top right
+		img10 = lambda x: x.transpose(Image.FLIP_LEFT_RIGHT).crop(
+								(x.size[0] - self.width, x.size[1] - self.height, 
+								x.size[0], x.size[1])) # flip bottom right
+								
+		return [img1, img2, img3, img4, img5, img6, img7, img8, img9, img10]
 		
 	def next_minibatch(self, batch_size):
 		'''
@@ -110,50 +164,97 @@ class VideoReader(object):
 		'''
 		Select a sequence of frames from video_path and return them as a Tensor.
 		'''
-		frames = sorted(os.listdir(video_path))
-		selectedFrame = np.random.choice(frames[:-self.stack_length])
-		frameId = frames.index(selectedFrame)
-		selectedFrames = [f for f in frames[frameId:frameId+self.stack_length]]
+		frames = sorted(os.listdir(video_path), key=lambda x: int(re.findall(r'\d+',x)[0]))
+		selectedFrames = []
 
-		img = Image.open(os.path.join(video_path,selectedFrame))
-		width = img.size[0]
-		height = img.size[1]
-		startWidth = (width - 224)*np.random.random_sample()
-		startHeight = (height - 224)*np.random.random_sample()
-		chance = np.random.random()
-		img_array = []
-		for f in selectedFrames:
-			path_v = os.path.join(video_path, f)
-			path_u = path_v.replace('/v/', '/u/')
-		
-			img_v = Image.open(path_v)
-			img_u = Image.open(path_u)
+		if self.is_training:
+			selectedFrame = np.random.choice(frames[:-self.stack_length])
+			frameId = frames.index(selectedFrame)
+			frameStack = [[os.path.join(video_path, f) for f in frames[frameId:frameId+self.stack_length]]]
+			video_frames = self._train_stack_transform(frameStack)
+		else:
+			length = self.sequence_length/10
+			ids = np.linspace(0, len(frames[:-self.stack_length]), num=length, dtype=np.int32, endpoint=False)
+			frameStack = [[os.path.join(video_path, f) for f in frames[frameId:frameId+self.stack_length]] 
+							for frameId in ids]
+			video_frames = self._test_stack_transform(frameStack)
 			
-			cropped_v = img_v.crop((startWidth, startHeight, startWidth+224, startHeight+224))
-			cropped_u = img_u.crop((startWidth, startHeight, startWidth+224, startHeight+224))
-			if chance > 0.5:
-				cropped_v = cropped_v.transpose(Image.FLIP_LEFT_RIGHT)
-				cropped_u = cropped_u.transpose(Image.FLIP_LEFT_RIGHT)
-			img_array.append(self.reescaleFlow(np.asarray(cropped_u, dtype=np.float32)))
-			img_array.append(self.reescaleFlow(np.asarray(cropped_v, dtype=np.float32)))
+		return video_frames
 
-		return img_array
+	def _train_stack_transform(self, videoStack):
+		video_array = []
+		# 1 for training
+		for frameStack in videoStack:
+			img = Image.open(frameStack[0])
+			width  = img.size[0]
+			height = img.size[1]
+			startWidth	= (width - 224)*np.random.random_sample()
+			startHeight = (height - 224)*np.random.random_sample()
+			flipChance = np.random.random()
+			stack_array = []
+			# 10 frames in the stack
+			for path_v in frameStack:
+				path_u = path_v.replace('/v/', '/u/')
+				img_u = Image.open(path_u)
+				img_v = Image.open(path_v)
+				u = img_u.crop((startWidth, startHeight, 
+								startWidth+self.width, startHeight+self.height))
+				v = img_v.crop((startWidth, startHeight, 
+								startWidth+self.width, startHeight+self.height))
+				if flipChance > 0.5:
+					u = u.transpose(Image.FLIP_LEFT_RIGHT)
+					v = v.transpose(Image.FLIP_LEFT_RIGHT)
+				new_u, new_v = self.transformFlow(np.asarray(u, dtype=np.float32), 
+													np.asarray(v, dtype=np.float32))
+				stack_array.append(new_u)
+				stack_array.append(new_v)
+			video_array.append(stack_array)
+			
+		return video_array		
 	
-	def reescaleFlow(self, flow):
-		newFlow = flow*(self.flowRange/self.imageRange) - self.flowRange/2
-		# Reduce mean flow
-		meanFlow = np.mean(newFlow)
-		return newFlow - meanFlow
+	def _test_stack_transform(self, videoStack):
+		video_array = []
+		# 25 for testing
+		for frameStack in videoStack:
+			seq_array = []
+			# 10 frames in the stack
+			for path_v in frameStack:				
+				path_u = path_v.replace('/v/', '/u/')
+				img_u = Image.open(path_u)
+				img_v = Image.open(path_v)
+				seq_array.append([img_u, img_v])
+			
+			# Making 10 cropped stacks
+			for cropType in self.multiView:
+				stack_array = []
+				for [u, v] in seq_array:
+					u = cropType(u)
+					v = cropType(v)
+					new_u, new_v = self.transformFlow(np.asarray(u, dtype=np.float32), 
+													np.asarray(v, dtype=np.float32))
+					stack_array.append(new_u)
+					stack_array.append(new_v)
+				video_array.append(stack_array)
+
+		return video_array
+	
+	def transformFlow(self, u, v):
+		# Reescale flow values
+		u = self.reescaleFlow(u)
+		v = self.reescaleFlow(v)
+		# Get displacement field mean value
+		meanFlow = np.mean([u, v]) 
+		return (u - meanFlow), (v - meanFlow)
 	
 
 # Trains a transfer learning model
 def train_model(train_reader, output_dir, log_file):
 	# Learning parameters
-	max_epochs = 2147 # frames per each video | 9537 training videos on total
-	minibatch_size = 256
-	lr_per_mb = [0.01]*1341 + [0.001]*538 + [0.0001]
+	max_epochs		= 2147 # 9537 training videos on total
+	minibatch_size	= 256
+	lr_per_mb		= [0.01]*1341 + [0.001]*538 + [0.0001]
 	momentum_per_mb = 0.9
-	l2_reg_weight = 0.0001
+	l2_reg_weight   = 0.0001
 
 	# Image parameters
 	image_height = train_reader.height
@@ -167,6 +268,11 @@ def train_model(train_reader, output_dir, log_file):
 
 	# create model
 	z = create_resnet34(input_var, num_classes)
+	# z = load_model('F:\TCC\Output-ResNet34_videoOF\Models\ResNet_34_800_trainer.dnn')
+	# node_outputs = get_node_outputs(z)
+	# for out in node_outputs: print("{0} {1}".format(out.name, out.shape))
+	# for index in range(len(z.outputs)):
+		# print("Index {} for output: {} | {}.".format(index, z.outputs[index].name, z.outputs[index].shape))
 		
 	# Loss and metric
 	ce = cross_entropy_with_softmax(z, label_var)
@@ -178,49 +284,47 @@ def train_model(train_reader, output_dir, log_file):
 											unit=UnitType.sample)
 	mm_schedule = momentum_schedule(momentum_per_mb)
 
-	# Progress writers
-	progress_writers = [ProgressPrinter(tag='Training', num_epochs=max_epochs, 
-						log_to_file=log_file, freq=10)]
+	# Printer
+	progress_printer = ProgressPrinter(freq=10, tag='Training', log_to_file=log_file, num_epochs=max_epochs)
+	with open(logFile, 'a') as file:
+		file.write('\nMinibatch_size = {}\n'.format(minibatch_size))
 
 	# Trainer object
 	learner = momentum_sgd(z.parameters, lr_schedule, mm_schedule, 
 							l2_regularization_weight = l2_reg_weight)
-	trainer = Trainer(z, (ce, pe), learner, progress_writers)
+	trainer = Trainer(z, (ce, pe), learner, progress_printer)
+
+	# Restore training and get last sample_count and last_epoch
+	last_trained_model = 'F:\TCC\Outputs\Output-ResNet34_videoOF-continuing2\Models\ResNet_34_1370_trainer.dnn'
+	trainer.restore_from_checkpoint(last_trained_model)
+	z = trainer.model
+
+	sample_count = trainer.total_number_of_samples_seen
+	last_epoch = sample_count/train_reader.size()
+	print('Total number of samples seen: {} | Last epoch: {}\n'.format(sample_count, last_epoch))
+	print('lr')
 	
-	with open(logFile, 'a') as file:
-		file.write('\nMinibatch_size = {}\n'.format(minibatch_size))
-	
-	log_number_of_parameters(z) ; print()
-	
-	sample_count = 0
-	for epoch in range(max_epochs):		  # loop over epochs
+	# Start training
+	start_profiler()
+	for epoch in range(last_epoch, max_epochs):	 # loop over epochs
 		train_reader.reset()
-		while train_reader.has_more():	  # loop over minibatches in the epoch
+		while train_reader.has_more():			 # loop over minibatches in the epoch
 			videos, labels, current_minibatch = train_reader.next_minibatch(minibatch_size)
 			trainer.train_minibatch({input_var : videos, label_var : labels})
 			sample_count += current_minibatch
-		
 		trainer.summarize_training_progress()
+		enable_profiler() # begin to collect profiler data after first epoch
+		
+		# Save checkpoint and model		
 		percent = (float(sample_count)/(train_reader.size()*max_epochs))*100
 		print ("Processed {} samples. {:^5.2f}% of total".format(sample_count, percent))
-		if epoch%50 == 0:
+		if epoch%10 == 0:
 			z.save(os.path.join(output_dir, 'Models', "ResNet_34_{}.model".format(epoch)))
 			trainer.save_checkpoint(os.path.join(output_dir, 'Models', "ResNet_34_{}_trainer.dnn".format(epoch)))
-
+	stop_profiler()
+	
 	return z
-
-# Creates minibatch reader for evaluation
-def create_mb_source(image_height, image_width, num_channels, num_output_classes, mean_file, map_file):
-	transforms = [
-		xforms.scale(width=image_width, height=image_height, channels=num_channels, interpolations='linear'),
-		xforms.crop(crop_type='MultiView10'),
-		xforms.mean(mean_file)
-	]
-	return MinibatchSource(ImageDeserializer(map_file, StreamDefs(
-		features=StreamDef(field='image', transforms=transforms),		# first column in map file is referred to as 'image'
-		labels=StreamDef(field='label', shape=num_output_classes))),	# and second as 'label'.
-		randomize=False)
-
+			
 # Get the video label based on its frames evaluations
 def getFinalLabel(predictedLabels, labelsConfidence):
 	maxCount = max(predictedLabels.values())
@@ -235,88 +339,71 @@ def getFinalLabel(predictedLabels, labelsConfidence):
 			topConfidence[label] = labelsConfidence[label]/maxCount
 		confidence = max(topConfidence.values())
 		top_labels = [label for label in topConfidence.keys() if topConfidence[label]==confidence]
-	return top_labels[0], confidence
+	return top_labels[0], confidence*100
 
+	
 # Evaluate network and writes output to file
-def eval_and_write(loaded_model, minibatch_source, action_id, epoch_size):
-	# evaluate model and get desired node output
-	features_si = minibatch_source['features']
+def eval_and_write(loaded_model, test_reader, output_file):
 	sample_count = 0
-	predictedLabels = dict()
-	labelsConfidence = dict()
-	newResult = '{:^15} | '.format(action_id)
-	while sample_count < epoch_size:
-		mb = minibatch_source.next_minibatch(1)
-		output = loaded_model.eval({loaded_model.arguments[0]:mb[features_si]})
-		sample_count += mb[features_si].num_samples
-		predictions = softmax(np.squeeze(output)).eval()
-		top_class = np.argmax(predictions)
-		if top_class in predictedLabels.keys():
-			predictedLabels[top_class] += 1
-			labelsConfidence[top_class] += predictions[top_class] * 100
-		else:
-			predictedLabels[top_class] = 1
-			labelsConfidence[top_class] = predictions[top_class] * 100
-	label, confidence = getFinalLabel(predictedLabels, labelsConfidence)
-	newResult += '{:^15} | {:^15.2f}%\n'.format(label, confidence)
-	return newResult
+	with open(output_file, 'a') as file:
+		while sample_count < test_reader.size():
+			videos_, labels_, current_minibatch = test_reader.next_minibatch(1)
+			sample_count += current_minibatch
+			predictionsSum = [0]*num_classes
+			predictedLabels = dict((key, 0) for key in xrange(num_classes))
+			labelsConfidence = dict((key, 0) for key in xrange(num_classes))
+			results = ''
+			for labels, videos in zip(labels_, videos_):
+				correctLabel = [j for j,v in enumerate(labels[0]) if v==1.0][0]
+				for i, video in enumerate(videos):
+					output = loaded_model.eval({loaded_model.arguments[0]:video})
+					predictions = softmax(np.squeeze(output)).eval()
+					top_class = np.argmax(predictions)
+					predictedLabels[top_class] += 1
+					labelsConfidence[top_class] += predictions[top_class]
+				label, confidence = getFinalLabel(predictedLabels, labelsConfidence)
+				results += '{:^15} | {:^15} {:^15.2f}%\n'.format(correctLabel, label, confidence)
+			file.write(results)
 	
 
 if __name__ == '__main__':
 	try_set_default_device(gpu(0))
 
 	#For training
-	newModelName   = "ResNet34_videoOF"
+	newModelName   = "ResNet34_videoOF-testingDictResults"
 	train_map_file = os.path.join(data_dir, "ucfTrainTestlist", "trainlist01.txt")
-	frames_dir	   = os.path.join(temporary_data_dir, "UCF-101_opticalFlow")
+	frames_dir	   = os.path.join(data_dir, "UCF-101_opticalFlow")
 	new_model_file = os.path.join(models_dir, newModelName)
 	output_dir	   = os.path.join(base_folder, "Output-{}".format(newModelName))
 	logFile		   = os.path.join(output_dir, "ResNet34_log.txt")
 	#For evaluation
-	# test_map_file	 = os.path.join(data_dir, "TestMapFiles01_RGB")
-	# mean_file_path = os.path.join(data_dir, "ImageNet1K_mean.xml")
-	# output_file	 = os.path.join(base_folder, "Results", "eval_{}.txt".format(newModelName))
+	test_map_file	 = os.path.join(data_dir, "ucfTrainTestlist", "testlist01.txt")
+	class_map_file	 = os.path.join(data_dir, "ucfTrainTestlist", "classInd.txt")
+	output_file	 = os.path.join(base_folder, "Results", "eval_{}.txt".format(newModelName))
 	
 	### Training ###
-	if not os.path.exists(output_dir):
-		os.mkdir(output_dir)
+	# if not os.path.exists(output_dir):
+		# os.mkdir(output_dir)
 	
-	train_reader = VideoReader(train_map_file, frames_dir, image_width, image_height, 
-								stack_length, num_classes)
-	trained_model = train_model(train_reader, output_dir, logFile)
+	# train_reader = VideoReader(train_map_file, frames_dir, image_width, image_height, stack_length, 
+								# num_classes, is_training=True)
+	# trained_model = train_model(train_reader, output_dir, logFile)
 	
-	trained_model.save(new_model_file)
-	print("Stored trained model at %s" % new_model_file)
+	# trained_model.save(new_model_file)
+	# print("Stored trained model at %s" % new_model_file)
 	
-	
-	### Evaluation ###
-	# if (os.path.exists(output_file)):
-		# raise Exception('The file {} already exist.'.format(output_file))
+	test_model = os.path.join("F:\TCC\Models\ResNet34_videoOF-continuing3")
+	trained_model = load_model(test_model)
+	## Evaluation ###
+	if (os.path.exists(output_file)):
+		raise Exception('The file {} already exist.'.format(output_file))
 
-	# Get all test map files
-	# map_files = sorted(os.listdir(test_map_file))
-	# with open(output_file, 'a') as results_file:
-		# results_file.write('{:<15} | {:<15} | {:<15}\n'.format('Correct label', 'Predicted label', 'Confidence'))
+	with open(output_file, 'w') as results_file:
+		results_file.write('{:<15} | {:<15}\n'.format('Correct label', 'Predicted label'))
 	
-	# myResults = []
-	# for test_file in map_files:
-		# action_id = test_file.split('_')[-1][:-4]
-		# file_path = os.path.join(test_map_file, test_file)
-		# minibatch_source = create_mb_source(image_height, image_width, num_channels, num_classes, 
-												# mean_file_path, file_path)
-		# evaluate model and write out the desired output
-		# result = eval_and_write(trained_model, minibatch_source, action_id, epoch_size=250)	  # 25 frames for that result in 250 inputs for the network
-		# myResults.append(result)
-		# if len(myResults) >= 100:
-			# with open(output_file, 'a') as results_file:
-				# for result in myResults:
-					# results_file.write(result)
-			# myResults = []
-		
-	# Saving the myResults < 100 left
-	# with open(output_file, 'a') as results_file:
-		# for result in myResults:
-			# results_file.write(result)
-
-	# print("Done. Wrote output to %s" % output_file)
-
+	test_reader = VideoReader(test_map_file, frames_dir, image_width, image_height, stack_length, 
+								num_classes, is_training=False, classMapFile=class_map_file)
+	# evaluate model and write out the desired output
+	eval_and_write(trained_model, test_reader, output_file)
+	
+	print("Done. Wrote output to %s" % output_file)

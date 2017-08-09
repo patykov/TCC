@@ -112,8 +112,8 @@ class VideoReader(object):
         return lambda x: x*(self.flowRange/self.imageRange) - self.flowRange/2
         
     def getMultiView(self):
-        img1 = lambda x: x.crop((x.size[0] - self.width/2, x.size[1] - self.height/2, 
-                                x.size[0] + self.width/2, x.size[1] + self.height/2)) # center
+        img1 = lambda x: x.crop((x.size[0]/2 - self.width/2, x.size[1]/2 - self.height/2, 
+                                x.size[0]/2 + self.width/2, x.size[1]/2 + self.height/2)) # center
         img2 = lambda x: x.crop((0, 0, 
                                 self.width, self.height)) # top left
         img3 = lambda x: x.crop((0, x.size[1] - self.height, 
@@ -124,8 +124,8 @@ class VideoReader(object):
                                 x.size[0], x.size[1])) # bottom right
         # Flipped
         img6 = lambda x: x.transpose(Image.FLIP_LEFT_RIGHT).crop(
-                                (x.size[0] - self.width/2, x.size[1] - self.height/2, 
-                                x.size[0] + self.width/2, x.size[1] + self.height/2)) # flip center
+                                (x.size[0]/2 - self.width/2, x.size[1]/2 - self.height/2, 
+                                x.size[0]/2 + self.width/2, x.size[1]/2 + self.height/2)) # flip center
         img7 = lambda x: x.transpose(Image.FLIP_LEFT_RIGHT).crop(
                                 (0, 0, 
                                 self.width, self.height)) # flip top left
@@ -164,7 +164,7 @@ class VideoReader(object):
         '''
         Select a sequence of frames from video_path and return them as a Tensor.
         '''
-        frames = sorted(os.listdir(video_path))
+        sorted(os.listdir(video_path), key=lambda x: int(x.split('.')[0]))
         selectedFrames = []
 
         if self.is_training:
