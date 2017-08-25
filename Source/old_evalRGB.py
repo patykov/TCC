@@ -99,9 +99,9 @@ class VideoReader(object):
 		if self.is_training:
 			for x in workList:
 				np.random.shuffle(x)
-			np.random.shuffle(workList)
-		np.random.shuffle(list(itertools.izip_longest(*workList)))
-		self.indices = [x for x in itertools.chain(*grouped) if x != None]
+		workList.sort(key=len, reverse=True)
+		aux = list(itertools.izip_longest(*workList))
+		self.indices = [x for x in itertools.chain(*list(itertools.izip_longest(*workList))) if x != None]
 	
 	def formatImg(self, img):
 		# Scale
@@ -195,16 +195,16 @@ class VideoReader(object):
 		yOff5 = (img.size[1] - self.height)/2
 		
 		flip_img = img.transpose(Image.FLIP_LEFT_RIGHT)
-		img1 = img.crop((xOff1, yOff1, xOff1 + self.width, yOff1 + self.height)) # top left
-		img2 = img.crop((xOff2, yOff2, xOff2 + self.width, yOff2 + self.height)) #top right
-		img3 = img.crop((xOff3, yOff3, xOff3 + self.width, yOff3 + self.height)) # bottom left
-		img4 = img.crop((xOff4, yOff4, xOff4 + self.width, yOff4 + self.height)) # bottom right
-		img5 = img.crop((xOff5, yOff5, xOff5 + self.width, yOff5 + self.height)) # center
-		img6 = flip_img.crop((xOff1, yOff1, xOff1 + self.width, yOff1 + self.height)) # flip top left
-		img7 = flip_img.crop((xOff2, yOff2, xOff2 + self.width, yOff2 + self.height)) # flip top right
-		img8 = flip_img.crop((xOff3, yOff3, xOff3 + self.width, yOff3 + self.height)) # flip bottom left
-		img9 = flip_img.crop((xOff4, yOff4, xOff4 + self.width, yOff4 + self.height)) # flip bottom right
-		img10 = flip_img.crop((xOff5, yOff5, xOff5 + self.width, yOff5 + self.height)) # flip center
+		img1 = img.crop((xOff1, yOff1, self.width, self.height)) # top left
+		img2 = img.crop((xOff2, yOff2, self.width, self.height)) #top right
+		img3 = img.crop((xOff3, yOff3, self.width, self.height)) # bottom left
+		img4 = img.crop((xOff4, yOff4, self.width, self.height)) # bottom right
+		img5 = img.crop((xOff5, yOff5, self.width, self.height)) # center
+		img6 = flip_img.crop((xOff1, yOff1, self.width, self.height)) # flip top left
+		img7 = flip_img.crop((xOff2, yOff2, self.width, self.height)) # flip top right
+		img8 = flip_img.crop((xOff3, yOff3, self.width, self.height)) # flip bottom left
+		img9 = flip_img.crop((xOff4, yOff4, self.width, self.height)) # flip bottom right
+		img10 = flip_img.crop((xOff5, yOff5, self.width, self.height)) # flip center
 							
 		multiView = [img1, img2, img3, img4, img5, img6, img7, img8, img9, img10]
 		
@@ -318,6 +318,17 @@ def train_model(network_path, train_reader, output_dir, log_file):
 			trainer.save_checkpoint(os.path.join(output_dir, 'Models', "VGG16_{}_trainer.dnn".format(epoch)))
 	return z
 
+# Creates minibatch reader for evaluation
+def create_mb_source(image_height, image_width, num_channels, num_output_classes, map_file):
+	transforms = [
+		xforms.crop(crop_type='multiview10', side_ratio=0.9333333),
+		xforms.scale(width=image_width, height=image_height, channels=num_channels, interpolations='linear'),
+	]
+	return MinibatchSource(ImageDeserializer(map_file, StreamDefs(
+		features=StreamDef(field='image', transforms=transforms),		# first column in map file is referred to as 'image'
+		labels=StreamDef(field='label', shape=num_output_classes))),	# and second as 'label'.
+		randomize=False)
+		
 # Get the video label based on its frames evaluations
 def getFinalLabel(predictedLabels, labelsConfidence):
 	maxCount = max(predictedLabels.values())
@@ -333,44 +344,35 @@ def getFinalLabel(predictedLabels, labelsConfidence):
 		confidence = max(topConfidence.values())
 		top_labels = [label for label in topConfidence.keys() if topConfidence[label]==confidence]
 	return top_labels[0], confidence*100
-	
+
 # Evaluate network and writes output to file
-def eval_and_write(loaded_model, test_reader, output_file):
-	sample_count = 0
-	with open(output_file, 'a') as file:
-		while sample_count < test_reader.size():
-			videos_, labels_, current_minibatch = test_reader.next_minibatch(1)
-			sample_count += current_minibatch
-			predictedLabels = dict((key, 0) for key in xrange(num_classes))
-			labelsConfidence = dict((key, 0) for key in xrange(num_classes))
-			results = ''
-			for labels, videos in zip(labels_, videos_):
-				correctLabel = [j for j,v in enumerate(labels[0]) if v==1.0][0]
-				for i, video in enumerate(videos):
-					output = loaded_model.eval({loaded_model.arguments[0]:video})
-					predictions = softmax(np.squeeze(output)).eval()
-					top_class = np.argmax(predictions)
-					predictedLabels[top_class] += 1
-					labelsConfidence[top_class] += predictions[top_class]
-				label, confidence = getFinalLabel(predictedLabels, labelsConfidence)
-				results += '{:^15} | {:^15} {:^15.2f}%\n'.format(correctLabel, label, confidence)
-			file.write(results)
+def eval_and_write(loaded_model, minibatch_source, action_id, epoch_size):
+	# evaluate model and get desired node output
+	features_si = minibatch_source['features']
+	predictedLabels = dict((key, 0) for key in xrange(num_classes))
+	labelsConfidence = dict((key, 0) for key in xrange(num_classes))
+	mb = minibatch_source.next_minibatch(epoch_size)
+	output = loaded_model.eval({loaded_model.arguments[0]:mb[features_si]})
+	predictions = softmax(np.squeeze(output)).eval()
+	top_classes = [np.argmax(p) for p in predictions]
+	for i, c in enumerate(top_classes):
+		predictedLabels[c] += 1 #Melhorar
+		labelsConfidence[c] += predictions[i][c]
+	label, confidence = getFinalLabel(predictedLabels, labelsConfidence)
+
+	return '{:^15} | {:^15} | {:^15.2f}%\n'.format(action_id, label, confidence)
 
 if __name__ == '__main__':
 	try_set_default_device(gpu(0))
 
 	#For training
-	newModelName   = "VGG_videoRGB-part2-eval2"
+	newModelName   = "VGG_videoRGB-part2-oldEval6"
 	network_path   = os.path.join(models_dir, "VGG16_ImageNet_CNTK.model")
 	train_map_file = os.path.join(data_dir, "ucfTrainTestlist", "trainlist01.txt")
 	frames_dir	   = os.path.join(data_dir, "UCF-101_rgb")
 	new_model_file = os.path.join(models_dir, newModelName)
 	output_dir	   = os.path.join(base_folder, "Output-{}".format(newModelName))
 	logFile		   = os.path.join(output_dir, "ResNet34_log.txt")
-	#For evaluation
-	test_map_file  = os.path.join(data_dir, "ucfTrainTestlist", "testlist01.txt")
-	class_map_file = os.path.join(data_dir, "ucfTrainTestlist", "classInd.txt")
-	output_file	   = os.path.join(base_folder, "Results", "eval_{}.txt".format(newModelName))
 	
 	### Training ###
 	# if not os.path.exists(output_dir):
@@ -385,17 +387,36 @@ if __name__ == '__main__':
 	
 	test_model = os.path.join("F:\TCC\Models\VGG_videoRGB-part2")
 	trained_model = load_model(test_model)
-	## Evaluation ###
-	if (os.path.exists(output_file)):
-		raise Exception('The file {} already exist.'.format(output_file))
+	
+	#For evaluation
+	test_map_file  = os.path.join(data_dir, "TestMapFiles01_RGB2")
+	output_file    = os.path.join(base_folder, "Results", "eval_{}.txt".format(newModelName))
+	
+	# if (os.path.exists(output_file)):
+		# raise Exception('The file {} already exist.'.format(output_file))
 
-	with open(output_file, 'w') as results_file:
-		results_file.write('{:<15} | {:<15}\n'.format('Correct label', 'Predicted label'))
+	#Get all test map files
+	map_files = sorted(os.listdir(test_map_file))
+	with open(output_file, 'a') as results_file:
+		results_file.write('{:<15} | {:<15} | {:<15}\n'.format('Correct label', 'Predicted label', 'Confidence'))
 	
-	test_reader = VideoReader(test_map_file, frames_dir, image_width, image_height, num_channels,
-							num_classes, is_training=False, classMapFile=class_map_file)
-	# evaluate model and write out the desired output
-	eval_and_write(trained_model, test_reader, output_file)
-	
+	myResults = []
+	for test_file in map_files:
+		action_id = test_file.split('_')[-1][:-4]
+		file_path = os.path.join(test_map_file, test_file)
+		minibatch_source = create_mb_source(image_height, image_width, num_channels, num_classes, file_path)
+		# evaluate model and write out the desired output
+		result = eval_and_write(trained_model, minibatch_source, action_id, epoch_size=250)	  # 25 frames for that result in 250 inputs for the network
+		myResults.append(result)
+		if len(myResults) >= 100:
+			with open(output_file, 'a') as results_file:
+				for result in myResults:
+					results_file.write(result)
+			myResults = []
+		
+	# Saving the myResults < 100 left
+	with open(output_file, 'a') as results_file:
+		for result in myResults:
+			results_file.write(result)
+
 	print("Done. Wrote output to %s" % output_file)
-	

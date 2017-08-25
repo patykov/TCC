@@ -13,7 +13,7 @@ import numpy as np
 import os
 import re
 from PIL import Image
-from resnet_models import *
+from models import *
 
 
 # Paths
@@ -104,9 +104,9 @@ class VideoReader(object):
 		if self.is_training:
 			for x in workList:
 				np.random.shuffle(x)
-		workList.sort(key=len, reverse=True)
-		aux = list(itertools.izip_longest(*workList))
-		self.indices = [x for x in itertools.chain(*list(itertools.izip_longest(*workList))) if x != None]
+			np.random.shuffle(workList)
+		np.random.shuffle(list(itertools.izip_longest(*workList)))
+		self.indices = [x for x in itertools.chain(*grouped) if x != None]
 
 	def getFlowReescale(self):
 		return lambda x: x*(self.flowRange/self.imageRange) - self.flowRange/2
@@ -302,7 +302,6 @@ def train_model(train_reader, output_dir, log_file):
 	sample_count = trainer.total_number_of_samples_seen
 	last_epoch = sample_count/train_reader.size()
 	print('Total number of samples seen: {} | Last epoch: {}\n'.format(sample_count, last_epoch))
-	print('lr')
 	
 	# Start training
 	start_profiler()
@@ -345,32 +344,33 @@ def getFinalLabel(predictedLabels, labelsConfidence):
 # Evaluate network and writes output to file
 def eval_and_write(loaded_model, test_reader, output_file):
 	sample_count = 0
+	results = ''
 	with open(output_file, 'a') as file:
 		while sample_count < test_reader.size():
-			videos_, labels_, current_minibatch = test_reader.next_minibatch(1)
+			videos, labels, current_minibatch = test_reader.next_minibatch(1)
 			sample_count += current_minibatch
-			predictionsSum = [0]*num_classes
 			predictedLabels = dict((key, 0) for key in xrange(num_classes))
 			labelsConfidence = dict((key, 0) for key in xrange(num_classes))
-			results = ''
-			for labels, videos in zip(labels_, videos_):
-				correctLabel = [j for j,v in enumerate(labels[0]) if v==1.0][0]
-				for i, video in enumerate(videos):
-					output = loaded_model.eval({loaded_model.arguments[0]:video})
-					predictions = softmax(np.squeeze(output)).eval()
-					top_class = np.argmax(predictions)
-					predictedLabels[top_class] += 1
-					labelsConfidence[top_class] += predictions[top_class]
-				label, confidence = getFinalLabel(predictedLabels, labelsConfidence)
-				results += '{:^15} | {:^15} {:^15.2f}%\n'.format(correctLabel, label, confidence)
-			file.write(results)
-	
+			correctLabel = [j for j,v in enumerate(labels[0][0]) if v==1.0][0]
+			output = loaded_model.eval({loaded_model.arguments[0]:videos[0]})
+			predictions = softmax(np.squeeze(output)).eval()
+			top_classes = [np.argmax(p) for p in predictions]
+			for i, c in enumerate(top_classes):
+				predictedLabels[c] += 1 #Melhorar
+				labelsConfidence[c] += predictions[i][c]
+			label, confidence = getFinalLabel(predictedLabels, labelsConfidence)
+			results += '{:^15} | {:^15} | {:^15.2f}%\n'.format(correctLabel, label, confidence)
+			if sample_count%50 == 0:
+				file.write(results)
+				results = ''
+		file.write(results)
+
 
 if __name__ == '__main__':
 	try_set_default_device(gpu(0))
 
 	#For training
-	newModelName   = "ResNet34_videoOF-testingDictResults"
+	newModelName   = "ResNet34_videoOF-new"
 	train_map_file = os.path.join(data_dir, "ucfTrainTestlist", "trainlist01.txt")
 	frames_dir	   = os.path.join(data_dir, "UCF-101_opticalFlow")
 	new_model_file = os.path.join(models_dir, newModelName)
@@ -399,7 +399,7 @@ if __name__ == '__main__':
 		raise Exception('The file {} already exist.'.format(output_file))
 
 	with open(output_file, 'w') as results_file:
-		results_file.write('{:<15} | {:<15}\n'.format('Correct label', 'Predicted label'))
+		results_file.write('{:^15} | {:^15} | {:^15}\n'.format('Correct label', 'Predicted label', 'Confidence'))
 	
 	test_reader = VideoReader(test_map_file, frames_dir, image_width, image_height, stack_length, 
 								num_classes, is_training=False, classMapFile=class_map_file)
