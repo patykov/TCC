@@ -27,7 +27,6 @@ num_channels = 3
 num_classes	 = 101
 
 
-
 # Define the reader for both training and evaluation action.
 class VideoReader(object):
 

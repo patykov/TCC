@@ -42,10 +42,29 @@ class TrainReader(object):
 		reader = create_video_mb_source(trainFiles, 1, image_height, image_width, num_classes)
 		
 		# define mapping from intput streams to network inputs
-		print(self.network)
-		input_map = {self.network['label']: reader.streams.labels1}
-		for i in range(20):
-			input_map[self.network['feature'+str(i)]] = reader.streams["feature"+str(i)]
+		input_map = {
+			self.network['label']: reader.streams.labels1,
+			self.network['feature1']: reader.streams.features1,
+			self.network['feature2']: reader.streams.features2,
+			self.network['feature3']: reader.streams.features3,
+			self.network['feature4']: reader.streams.features4,
+			self.network['feature5']: reader.streams.features5,
+			self.network['feature6']: reader.streams.features6,
+			self.network['feature7']: reader.streams.features7,
+			self.network['feature8']: reader.streams.features8,
+			self.network['feature9']: reader.streams.features9,
+			self.network['feature10']: reader.streams.features10,
+			self.network['feature11']: reader.streams.features11,
+			self.network['feature12']: reader.streams.features12,
+			self.network['feature13']: reader.streams.features13,
+			self.network['feature14']: reader.streams.features14,
+			self.network['feature15']: reader.streams.features15,
+			self.network['feature16']: reader.streams.features16,
+			self.network['feature17']: reader.streams.features17,
+			self.network['feature18']: reader.streams.features18,
+			self.network['feature19']: reader.streams.features19,
+			self.network['feature20']: reader.streams.features20
+		}
 		
 		return reader, input_map
 
@@ -66,11 +85,68 @@ def create_video_mb_source(map_files, num_channels, image_height, image_width, n
 		raise Exception('There is a problem with the mapFiles selection.')
 
 	# Create multiple image sources
-	sources = []
-	for i, map_file in enumerate(map_files):
-		streams = {"feature"+str(i): StreamDef(field='image', transforms=transforms),
-				   "label"+str(i): StreamDef(field='label', shape=num_classes)}
-		sources.append(ImageDeserializer(map_file, StreamDefs(**streams)))
+	sources = [
+		ImageDeserializer(map_files[0], StreamDefs(
+				features1 = StreamDef(field='image', transforms=transforms),
+				labels1	  = StreamDef(field='label', shape=num_classes))),	 
+		ImageDeserializer(map_files[1], StreamDefs(
+				features2 = StreamDef(field='image', transforms=transforms),
+				labels2	  = StreamDef(field='label', shape=num_classes))),
+		ImageDeserializer(map_files[2], StreamDefs(
+				features3 = StreamDef(field='image', transforms=transforms),
+				labels3	  = StreamDef(field='label', shape=num_classes))),
+		ImageDeserializer(map_files[3], StreamDefs(
+				features4 = StreamDef(field='image', transforms=transforms),
+				labels4	  = StreamDef(field='label', shape=num_classes))),
+		ImageDeserializer(map_files[4], StreamDefs(
+				features5 = StreamDef(field='image', transforms=transforms),
+				labels5	  = StreamDef(field='label', shape=num_classes))),
+		ImageDeserializer(map_files[5], StreamDefs(
+				features6 = StreamDef(field='image', transforms=transforms),
+				labels6	  = StreamDef(field='label', shape=num_classes))),
+		ImageDeserializer(map_files[6], StreamDefs(
+				features7 = StreamDef(field='image', transforms=transforms),
+				labels7	  = StreamDef(field='label', shape=num_classes))),
+		ImageDeserializer(map_files[7], StreamDefs(
+				features8 = StreamDef(field='image', transforms=transforms),
+				labels8	  = StreamDef(field='label', shape=num_classes))),
+		ImageDeserializer(map_files[8], StreamDefs(
+				features9 = StreamDef(field='image', transforms=transforms),
+				labels9	  = StreamDef(field='label', shape=num_classes))),
+		ImageDeserializer(map_files[9], StreamDefs(
+				features10 = StreamDef(field='image', transforms=transforms),
+				labels10   = StreamDef(field='label', shape=num_classes))),
+		ImageDeserializer(map_files[10], StreamDefs(
+				features11 = StreamDef(field='image', transforms=transforms),
+				labels11   = StreamDef(field='label', shape=num_classes))),
+		ImageDeserializer(map_files[11], StreamDefs(
+				features12 = StreamDef(field='image', transforms=transforms),
+				labels12   = StreamDef(field='label', shape=num_classes))),
+		ImageDeserializer(map_files[12], StreamDefs(
+				features13 = StreamDef(field='image', transforms=transforms),
+				labels13   = StreamDef(field='label', shape=num_classes))),
+		ImageDeserializer(map_files[13], StreamDefs(
+				features14 = StreamDef(field='image', transforms=transforms),
+				labels14   = StreamDef(field='label', shape=num_classes))),
+		ImageDeserializer(map_files[14], StreamDefs(
+				features15 = StreamDef(field='image', transforms=transforms),
+				labels15   = StreamDef(field='label', shape=num_classes))),
+		ImageDeserializer(map_files[15], StreamDefs(
+				features16 = StreamDef(field='image', transforms=transforms),
+				labels16   = StreamDef(field='label', shape=num_classes))),
+		ImageDeserializer(map_files[16], StreamDefs(
+				features17 = StreamDef(field='image', transforms=transforms),
+				labels17   = StreamDef(field='label', shape=num_classes))),
+		ImageDeserializer(map_files[17], StreamDefs(
+				features18 = StreamDef(field='image', transforms=transforms),
+				labels18   = StreamDef(field='label', shape=num_classes))),
+		ImageDeserializer(map_files[18], StreamDefs(
+				features19 = StreamDef(field='image', transforms=transforms),
+				labels19   = StreamDef(field='label', shape=num_classes))),
+		ImageDeserializer(map_files[19], StreamDefs(
+				features20 = StreamDef(field='image', transforms=transforms),
+				labels20   = StreamDef(field='label', shape=num_classes)))
+	]
 
 	return MinibatchSource(sources, max_sweeps=1, randomize=False)
 
@@ -92,7 +168,7 @@ def create_OF_model(num_classes, num_channels, image_height, image_width):
 	flowRange  = 40.0
 	imageRange = 255.0
 	input_reescaleFlow = [i*(flowRange/imageRange) - flowRange/2 for i in inputs]
-	input_reduceMean = [(i-reduce_mean(i, axis=[1,2])) for i in input_reescaleFlow]
+	input_reduceMean = [(i-reduce_mean(reduce_mean(i, axis=1), axis=2)) for i in input_reescaleFlow]
 	new_input = splice(*(i for i in input_reduceMean), axis=0, name='pre_input')
 	
 	z = z_base(new_input)
@@ -103,16 +179,32 @@ def create_OF_model(num_classes, num_channels, image_height, image_width):
 	ce = cross_entropy_with_softmax(z, label_var)
 	pe = classification_error(z, label_var)
 	
-	features = {}
-	for i in range(20):
-		features['feature'+str(i)] = inputs[i]
-	
-	return dict({
+	return {
 		'model': z,
 		'ce' : ce,
 		'pe' : pe,
-		'label': label_var}, 
-		**features)
+		'label': label_var,
+		'feature1': inputs[0],
+		'feature2': inputs[1],
+		'feature3': inputs[2],
+		'feature4': inputs[3],
+		'feature5': inputs[4],
+		'feature6': inputs[5],
+		'feature7': inputs[6],
+		'feature8': inputs[7],
+		'feature9': inputs[8],
+		'feature10': inputs[9],
+		'feature11': inputs[10],
+		'feature12': inputs[11],
+		'feature13': inputs[12],
+		'feature14': inputs[13],
+		'feature15': inputs[14],
+		'feature16': inputs[15],
+		'feature17': inputs[16],
+		'feature18': inputs[17],
+		'feature19': inputs[18],
+		'feature20': inputs[19]
+	}
 
 def getLastmodel(output_dir, model_name):
 	trained_models = [f for f in os.listdir(output_dir) if f.endswith('.dnn')]
@@ -228,10 +320,28 @@ def eval_and_write(loaded_model, test_mapFiles, output_file):
 	test_reader = create_video_mb_source(test_mapFiles, 1, image_height, image_width, num_classes, 
 									is_training=False)
 	
-	input_map = {}
-	for i in range(20):
-		input_map[loaded_model.find_by_name("input_"+str(i))] = test_reader.streams["feature"+str(i)]
-
+	input_map = {
+		loaded_model.input_0: test_reader.streams.features1,
+		loaded_model.input_1: test_reader.streams.features2,
+		loaded_model.input_2: test_reader.streams.features3,
+		loaded_model.input_3: test_reader.streams.features4,
+		loaded_model.input_4: test_reader.streams.features5,
+		loaded_model.input_5: test_reader.streams.features6,
+		loaded_model.input_6: test_reader.streams.features7,
+		loaded_model.input_7: test_reader.streams.features8,
+		loaded_model.input_8: test_reader.streams.features9,
+		loaded_model.input_9: test_reader.streams.features10,
+		loaded_model.input_10: test_reader.streams.features11,
+		loaded_model.input_11: test_reader.streams.features12,
+		loaded_model.input_12: test_reader.streams.features13,
+		loaded_model.input_13: test_reader.streams.features14,
+		loaded_model.input_14: test_reader.streams.features15,
+		loaded_model.input_15: test_reader.streams.features16,
+		loaded_model.input_16: test_reader.streams.features17,
+		loaded_model.input_17: test_reader.streams.features18,
+		loaded_model.input_18: test_reader.streams.features19,
+		loaded_model.input_19: test_reader.streams.features20
+	}
 
 	with open(test_mapFiles[0], 'r') as file:
 		lines = file.readlines()
@@ -281,10 +391,10 @@ if __name__ == '__main__':
 	# Paths
 	data_dir = args.datadir
 	# For training
-	newModelName   = "VGG16_videoOF_test"
+	newModelName   = "VGG16_videoOF_two"
 	if args.logdir is not None:
 		logFile = args.logdir
-	map_dir = os.path.join(data_dir, "OF_mapFiles-forLaterXforms")
+	map_dir = os.path.join(data_dir, "OF_mapFiles_dividedFifty")
 	output_dir = os.path.join(data_dir, newModelName)
 	
 	train_mapFiles = sorted([os.path.join(map_dir, f) for f in os.listdir(map_dir) if 'train' in f])
@@ -293,10 +403,13 @@ if __name__ == '__main__':
 	test_mapFiles  = sorted([os.path.join(map_dir, f) for f in os.listdir(map_dir) if 'test' in f])
 	output_file	   = os.path.join(output_dir, "eval_{}.txt".format(newModelName))
 	
+	# if os.path.exists(os.path.join(data_dir, 'VVG16_videoOF_second')):
+		# shutil.rmtree(os.path.join(data_dir, 'VVG16_videoOF_second'))
 	
 	### Training ###
 	if not os.path.exists(output_dir):
 		os.mkdir(output_dir)
+		
 
 	trained_model = train_model(train_mapFiles, output_dir, logFile, newModelName)
 	trained_model.save(new_model_file)

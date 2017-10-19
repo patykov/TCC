@@ -199,7 +199,6 @@ class VideoReader(object):
             return upScale, int(x*height)
         else:
             return int(x*width), upScale
-    
 
 
 def create_reader(map_file, mean_file):

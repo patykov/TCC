@@ -106,7 +106,7 @@ class VideoReader(object):
 			for x in workList:
 				np.random.shuffle(x)
 			np.random.shuffle(workList)
-		grouped = list(itertools.izip_longest(*workList))
+		grouped = list(itertools.zip_longest(*workList))
 		np.random.shuffle(grouped)
 		self.indices = [x for x in itertools.chain(*grouped) if x != None]
 
@@ -245,8 +245,9 @@ class VideoReader(object):
 		u = self.reescaleFlow(u)
 		v = self.reescaleFlow(v)
 		# Get displacement field mean value
-		meanFlow = np.mean([u, v]) 
-		return (u - meanFlow), (v - meanFlow)
+		# meanFlow = np.mean([u, v]) 
+		# return (u - meanFlow), (v - meanFlow)
+		return (u - np.mean(u)), (v - np.mean(v))
 	
 
 # Trains a transfer learning model
@@ -269,7 +270,7 @@ def train_model(train_reader, output_dir, log_file):
 	label_var = input_variable(num_classes)
 
 	# create model
-	z = create_vgg16(input_var, num_classes)
+	z = create_vgg16_2(input_var, num_classes)
 	# z = load_model('F:\TCC\Output-ResNet34_videoOF\Models\ResNet_34_800_trainer.dnn')
 	# node_outputs = get_node_outputs(z)
 	# for out in node_outputs: print("{0} {1}".format(out.name, out.shape))
@@ -281,7 +282,7 @@ def train_model(train_reader, output_dir, log_file):
 	pe = classification_error(z, label_var)
 
 	# Set learning parameters
-	lr_per_sample = [lr/minibatch_size for lr in lr_per_mb]
+	lr_per_sample = [lr/256 for lr in lr_per_mb]
 	lr_schedule = learning_rate_schedule(lr_per_sample, epoch_size=train_reader.size(), 
 											unit=UnitType.sample)
 	mm_schedule = momentum_schedule(momentum_per_mb)
@@ -297,12 +298,12 @@ def train_model(train_reader, output_dir, log_file):
 	trainer = Trainer(z, (ce, pe), learner, progress_printer)
 
 	# Restore training and get last sample_count and last_epoch
-	last_trained_model = 'F:/TCC/Outputs/Output-VVG16_videoOF_part1/Models/VGG16_1600_trainer.dnn'
+	last_trained_model = 'F:/TCC/Output-VVG16_2_videoOF_part1/Models/VGG16_140_trainer.dnn'
 	trainer.restore_from_checkpoint(last_trained_model)
 	z = trainer.model
 
 	sample_count = trainer.total_number_of_samples_seen
-	last_epoch = sample_count/train_reader.size()
+	last_epoch = int(sample_count/train_reader.size())
 	print('Total number of samples seen: {} | Last epoch: {}\n'.format(sample_count, last_epoch))
 	
 	# Start training
@@ -351,8 +352,8 @@ def eval_and_write(loaded_model, test_reader, output_file):
 		while sample_count < test_reader.size():
 			videos, labels, current_minibatch = test_reader.next_minibatch(1)
 			sample_count += current_minibatch
-			predictedLabels = dict((key, 0) for key in xrange(num_classes))
-			labelsConfidence = dict((key, 0) for key in xrange(num_classes))
+			predictedLabels = dict((key, 0) for key in range(num_classes))
+			labelsConfidence = dict((key, 0) for key in range(num_classes))
 			correctLabel = [j for j,v in enumerate(labels[0][0]) if v==1.0][0]
 			output = loaded_model.eval({loaded_model.arguments[0]:videos[0]})
 			predictions = softmax(np.squeeze(output)).eval()
@@ -372,7 +373,7 @@ if __name__ == '__main__':
 	try_set_default_device(gpu(0))
 
 	#For training
-	newModelName   = "VVG16_videoOF_part1-v2"
+	newModelName   = "VVG16_2_videoOF_part1"
 	train_map_file = os.path.join(data_dir, "ucfTrainTestlist", "trainlist01.txt")
 	frames_dir	   = os.path.join(data_dir, "UCF-101_opticalFlow")
 	new_model_file = os.path.join(models_dir, newModelName)
@@ -384,19 +385,19 @@ if __name__ == '__main__':
 	output_file	   = os.path.join(base_folder, "Results", "eval_{}.txt".format(newModelName))
 	
 	### Training ###
-	# if not os.path.exists(output_dir):
-		# os.mkdir(output_dir)
+	if not os.path.exists(output_dir):
+		os.mkdir(output_dir)
 	
-	# train_reader = VideoReader(train_map_file, frames_dir, image_width, image_height, stack_length, 
-								# num_classes, is_training=True)
-	# trained_model = train_model(train_reader, output_dir, logFile)
+	train_reader = VideoReader(train_map_file, frames_dir, image_width, image_height, stack_length, 
+								num_classes, is_training=True)
+	trained_model = train_model(train_reader, output_dir, logFile)
 	
-	# trained_model.save(new_model_file)
-	# print("Stored trained model at %s" % new_model_file)
+	trained_model.save(new_model_file)
+	print("Stored trained model at %s" % new_model_file)
 	
-	test_model = "F:/TCC/Outputs/Output-VVG16_videoOF_part1/Models/VGG16_1600_trainer.dnn"
-	trained_model = load_model(test_model)
-	trained_model = combine([trained_model.outputs[0].owner])
+	# test_model = "F:/TCC/Output-VVG16_2_videoOF_part1/Models/VGG16_20_trainer.dnn"
+	# trained_model = load_model(test_model)
+	# trained_model = combine([trained_model.outputs[0].owner])
 	## Evaluation ###
 	if (os.path.exists(output_file)):
 		raise Exception('The file {} already exist.'.format(output_file))

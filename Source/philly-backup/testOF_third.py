@@ -15,7 +15,6 @@ import numpy as np
 import os
 from models import *
 import time
-import shutil
 
 class TrainReader(object):
 
@@ -42,8 +41,7 @@ class TrainReader(object):
 		reader = create_video_mb_source(trainFiles, 1, image_height, image_width, num_classes)
 		
 		# define mapping from intput streams to network inputs
-		print(self.network)
-		input_map = {self.network['label']: reader.streams.labels1}
+		input_map = {self.network['label']: reader.streams.label1}
 		for i in range(20):
 			input_map[self.network['feature'+str(i)]] = reader.streams["feature"+str(i)]
 		
@@ -51,12 +49,11 @@ class TrainReader(object):
 
 # Create a minibatch source.
 def create_video_mb_source(map_files, num_channels, image_height, image_width, num_classes, is_training=True):
-	transforms = []
-	
 	if is_training:
+		transforms = [xforms.crop(crop_type='Center', crop_size=224)]
 		map_files = sorted(map_files, key=lambda x: int(x.split('Map_')[1].split('part')[0]))
 	else:
-		transforms += [xforms.crop(crop_type='MultiView10')]
+		transforms = [xforms.crop(crop_type='MultiView10', crop_size=224)]
 		map_files = sorted(map_files, key=lambda x: int(x.split('Map_')[1].split('.')[0]))
 	
 	transforms += [xforms.scale(width=image_width, height=image_height, channels=num_channels, interpolations='linear')]
@@ -249,17 +246,17 @@ def eval_and_write(loaded_model, test_mapFiles, output_file):
 			mb = test_reader.next_minibatch(25, input_map=input_map)
 			predictedLabels = dict((key, 0) for key in range(num_classes))
 			labelsConfidence = dict((key, 0) for key in range(num_classes))
-			correctLabel = int(sample_count/25)
+			id_correctLabel = int(sample_count/25)
 			sample_count += 25
-			output = loaded_model.eval(mb)
+			output = network.eval(mb)
 			predictions = softmax(np.squeeze(output)).eval()
 			top_classes = [np.argmax(p) for p in predictions]
 			for i, c in enumerate(top_classes):
 				predictedLabels[c] += 1 #Melhorar
 				labelsConfidence[c] += predictions[i][c]
 			label, confidence = getFinalLabel(predictedLabels, labelsConfidence)
-			results += '{:^15} | {:^15} | {:^15.2f}%\n'.format(correctLabel, label, confidence)
-			if sample_count%100 == 0:
+			results += '{:^15} | {:^15} | {:^15.2f}%\n'.format(correctLabels[id_correctLabel], label, confidence)
+			if sample_count%500 == 0:
 				print('{:.2f}% samples evaluated!'.format((sample_count/max_samples)*100))
 				file.write(results)
 				results = ''
@@ -281,10 +278,10 @@ if __name__ == '__main__':
 	# Paths
 	data_dir = args.datadir
 	# For training
-	newModelName   = "VGG16_videoOF_test"
+	newModelName   = "VGG16_videoOF_testThird"
 	if args.logdir is not None:
 		logFile = args.logdir
-	map_dir = os.path.join(data_dir, "OF_mapFiles-forLaterXforms")
+	map_dir = os.path.join(data_dir, "OF_mapFiles_dividedFifty_uv")
 	output_dir = os.path.join(data_dir, newModelName)
 	
 	train_mapFiles = sorted([os.path.join(map_dir, f) for f in os.listdir(map_dir) if 'train' in f])
@@ -292,8 +289,7 @@ if __name__ == '__main__':
 	# For evaluation
 	test_mapFiles  = sorted([os.path.join(map_dir, f) for f in os.listdir(map_dir) if 'test' in f])
 	output_file	   = os.path.join(output_dir, "eval_{}.txt".format(newModelName))
-	
-	
+
 	### Training ###
 	if not os.path.exists(output_dir):
 		os.mkdir(output_dir)

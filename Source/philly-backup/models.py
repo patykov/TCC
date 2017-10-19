@@ -48,52 +48,6 @@ def create_vgg16(feature_var, num_classes):
             ])(feature_var)
 
     return z
-	
-def create_vgg16_2(feature_var, num_classes):
-
-    with default_options(activation=None, pad=True, bias=True):
-        z = Sequential([
-            # we separate Convolution and ReLU to name the output for feature extraction (usually before ReLU)
-            For(range(2), lambda i: [
-                Convolution2D((3,3), 64, name='conv1_{}'.format(i)),
-                Activation(activation=relu, name='relu1_{}'.format(i)),
-            ]),
-            MaxPooling((2,2), (2,2), name='pool1'),
-
-            For(range(2), lambda i: [
-                Convolution2D((3,3), 128, name='conv2_{}'.format(i)),
-                Activation(activation=relu, name='relu2_{}'.format(i)),
-            ]),
-            MaxPooling((2,2), (2,2), name='pool2'),
-
-            For(range(3), lambda i: [
-                Convolution2D((3,3), 256, name='conv3_{}'.format(i)),
-                Activation(activation=relu, name='relu3_{}'.format(i)),
-            ]),
-            MaxPooling((2,2), (2,2), name='pool3'),
-
-            For(range(3), lambda i: [
-                Convolution2D((3,3), 512, name='conv4_{}'.format(i)),
-                Activation(activation=relu, name='relu4_{}'.format(i)),
-            ]),
-            MaxPooling((2,2), (2,2), name='pool4'),
-
-            For(range(3), lambda i: [
-                Convolution2D((3,3), 512, name='conv5_{}'.format(i)),
-                Activation(activation=relu, name='relu5_{}'.format(i)),
-            ]),
-            MaxPooling((2,2), (2,2), name='pool5'),
-
-            Dense(4096, name='fc6'),
-            Activation(activation=relu, name='relu6'),
-            Dropout(0.9, name='drop6'),
-            Dense(4096, name='fc7'),
-            Activation(activation=relu, name='relu7'),
-            Dropout(0.9, name='drop7'),
-            Dense(num_classes, name='fc8')
-            ])(feature_var)
-
-    return z
 
 
 #

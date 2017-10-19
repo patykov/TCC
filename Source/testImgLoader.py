@@ -174,7 +174,6 @@ def eval_img(loaded_model, image_data):
 	label		 = np.argmax(predictions)
 	return label, predictions[label]*100
 
-
 def save_img(imgData, imagePath):
 	img = np.array(np.squeeze(imgData))
 	img = np.rollaxis(np.rollaxis(img,1),2,1)
