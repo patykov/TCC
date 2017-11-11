@@ -1,6 +1,0 @@
-Dataset size:        640     
-Total of right:      38       | 5.94 %
-Total of wrong:      602      | 94.06%
-
-Precision per class:
-2   ----> 92.68%

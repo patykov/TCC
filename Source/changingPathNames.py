@@ -4,8 +4,8 @@ import numpy as np
 
 
 if __name__ == '__main__':
-	dirName = "F:/TCC/Datasets/RGB_mapFiles_forLaterXforms"
-	newDirName = "F:/TCC/Datasets/RGB_mapFiles"
+	dirName = "F:/TCC/Datasets/RGBdiff_mapFiles"
+	newDirName = "F:/TCC/Datasets/RGBdiff_mapFiles_philly"
 	
 	if not os.path.exists(newDirName):
 		os.mkdir(newDirName)
@@ -24,10 +24,11 @@ if __name__ == '__main__':
 			# newLines = [l.replace("F:/TCC/Datasets/UCF-101_opticalFlow\\v\\", 
 						# "/hdfs/pnrsy/t-pakova/v.zip@/v/") for l in lines]
 						
-		newLines = [l.replace("E:\\TCC\\Datasets\\UCF-101_rgb\\", 
-							"/hdfs/pnrsy/t-pakova/UCF-101_rgb.zip@/UCF-101_rgb/") for l in lines]
 		newLines = [l.replace("F:/TCC/Datasets/UCF-101_rgb\\", 
-					"/hdfs/pnrsy/t-pakova/UCF-101_rgb.zip@/UCF-101_rgb/") for l in newLines]
+					"/hdfs/pnrsy/t-pakova/UCF-101_rgb.zip@/UCF-101_rgb/") for l in lines]
+		newLines = [l.replace("v_HandstandPushups", 
+					"v_HandStandPushups") for l in newLines]
+		newLines = [l.replace("\\", "/") for l in newLines]
 		with open(os.path.join(newDirName, filePath), 'w') as file:
 			for l in newLines:
 				file.write(l)

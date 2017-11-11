@@ -1,13 +1,14 @@
 from cntk import load_model, Trainer, UnitType
 from cntk.debugging import start_profiler, stop_profiler, enable_profiler
 from cntk.device import gpu, try_set_default_device
-from cntk.io import StreamDef
+from cntk.io import ImageDeserializer, MinibatchSource, StreamDef, StreamDefs
+import cntk.io.transforms as xforms
 from cntk.learners import momentum_sgd, learning_rate_schedule, momentum_schedule
 from cntk.logging import ProgressPrinter, log_number_of_parameters
 from cntk.logging.graph import find_by_name, get_node_outputs
 from cntk.losses import cross_entropy_with_softmax
 from cntk.metrics import classification_error
-from cntk.ops import input_variable, softmax, sequence, combine, CloneMethod, placeholder
+from cntk.ops import input_variable, softmax, sequence, combine, splice, reduce_mean
 import itertools
 import numpy as np
 import os
@@ -250,14 +251,57 @@ class VideoReader(object):
 		return (u - np.mean(u)), (v - np.mean(v))
 	
 
+# Create a minibatch source.
+def create_video_mb_source(map_files, num_channels, image_height, image_width, num_classes, max_epochs, 
+							is_training=True):
+	if is_training:
+		transforms = [xforms.crop(crop_type='Center', crop_size=224)]
+		randomize = True
+	else:
+		transforms = [xforms.crop(crop_type='MultiView10', crop_size=224)]
+		randomize = False
+	
+	map_files = sorted(map_files, key=lambda x: int(x.split('Map_')[1].split('.')[0]))
+	
+	transforms += [xforms.scale(width=image_width, height=image_height, channels=num_channels, interpolations='linear')]
+	
+	if len(map_files) != 20:
+		raise Exception('There is a problem with the mapFiles selection.')
+
+	# Create multiple image sources
+	sources = []
+	for i, map_file in enumerate(map_files):
+		streams = {"feature"+str(i): StreamDef(field='image', transforms=transforms),
+				   "label"+str(i): StreamDef(field='label', shape=num_classes)}
+		sources.append(ImageDeserializer(map_file, StreamDefs(**streams)))
+
+	return MinibatchSource(sources, max_sweeps=max_epochs, randomize=randomize)
+
+def create_OF_model(num_classes, num_channels, image_height, image_width):
+	inputs = []
+	for c in range(num_channels):
+		inputs.append(input_variable((1, image_height, image_width), name='input_{}'.format(c)))
+	flowRange  = 40.0
+	imageRange = 255.0
+	input_reescaleFlow = [i*(flowRange/imageRange) - flowRange/2 for i in inputs]
+	input_reduceMean = [(i-reduce_mean(i, axis=[1,2])) for i in input_reescaleFlow]
+	z = splice(*(i for i in input_reduceMean), axis=0, name='pre_input')
+	
+	label_var = input_variable(num_classes)
+	features = {}
+	for i in range(20):
+		features['feature'+str(i)] = inputs[i]
+	
+	return dict({
+		'model': z,
+		'label': label_var}, 
+		**features)
+	
 # Trains a transfer learning model
-def train_model(train_reader, output_dir, log_file):
+def train_model(train_reader, output_dir, log_file, train_mapFiles):
 	# Learning parameters
 	max_epochs		= 2147 # 9537 training videos on total
 	minibatch_size	= 64
-	lr_per_mb		= [0.01]*1341 + [0.001]*538 + [0.0001]
-	momentum_per_mb = 0.9
-	l2_reg_weight	= 0.0001
 
 	# Image parameters
 	image_height = train_reader.height
@@ -265,67 +309,33 @@ def train_model(train_reader, output_dir, log_file):
 	num_channels = train_reader.channel_count
 	num_classes	 = train_reader.label_count
 	
-	# Input variables
-	input_var = input_variable((num_channels, image_height, image_width))
-	label_var = input_variable(num_classes)
-
-	# create model
-	z = create_vgg16_2(input_var, num_classes)
-	# z = load_model('F:\TCC\Output-ResNet34_videoOF\Models\ResNet_34_800_trainer.dnn')
-	# node_outputs = get_node_outputs(z)
-	# for out in node_outputs: print("{0} {1}".format(out.name, out.shape))
-	# for index in range(len(z.outputs)):
-		# print("Index {} for output: {} | {}.".format(index, z.outputs[index].name, z.outputs[index].shape))
-		
-	# Loss and metric
-	ce = cross_entropy_with_softmax(z, label_var)
-	pe = classification_error(z, label_var)
-
-	# Set learning parameters
-	lr_per_sample = [lr/256 for lr in lr_per_mb]
-	lr_schedule = learning_rate_schedule(lr_per_sample, epoch_size=train_reader.size(), 
-											unit=UnitType.sample)
-	mm_schedule = momentum_schedule(momentum_per_mb)
-
-	# Printer
-	progress_printer = ProgressPrinter(freq=10, tag='Training', log_to_file=log_file, num_epochs=max_epochs)
-	with open(logFile, 'a') as file:
-		file.write('\nMinibatch_size = {}\n'.format(minibatch_size))
-
-	# Trainer object
-	learner = momentum_sgd(z.parameters, lr_schedule, mm_schedule, 
-							l2_regularization_weight = l2_reg_weight)
-	trainer = Trainer(z, (ce, pe), learner, progress_printer)
-
-	# Restore training and get last sample_count and last_epoch
-	last_trained_model = 'F:/TCC/Output-VVG16_2_videoOF_part1/Models/VGG16_140_trainer.dnn'
-	trainer.restore_from_checkpoint(last_trained_model)
-	z = trainer.model
-
-	sample_count = trainer.total_number_of_samples_seen
-	last_epoch = int(sample_count/train_reader.size())
-	print('Total number of samples seen: {} | Last epoch: {}\n'.format(sample_count, last_epoch))
+	# Create fake network
+	streamOF = create_OF_model(num_classes, num_channels, image_height, image_width)
 	
+	# Create train reader:
+	reader = create_video_mb_source(train_mapFiles, 1, image_height, image_width, num_classes, max_epochs)
+	
+	input_map = {}
+	for i in range(20):
+		input_map[streamOF['feature'+str(i)]] = reader.streams["feature"+str(i)]
+
 	# Start training
-	start_profiler()
-	for epoch in range(last_epoch, max_epochs):	 # loop over epochs
+	for epoch in range(0, max_epochs):	 # loop over epochs
 		train_reader.reset()
 		while train_reader.has_more():			 # loop over minibatches in the epoch
 			videos, labels, current_minibatch = train_reader.next_minibatch(minibatch_size)
-			trainer.train_minibatch({input_var : videos, label_var : labels})
-			sample_count += current_minibatch
-		trainer.summarize_training_progress()
-		enable_profiler() # begin to collect profiler data after first epoch
-		
-		# Save checkpoint and model		
-		percent = (float(sample_count)/(train_reader.size()*max_epochs))*100
-		print ("Processed {} samples. {:^5.2f}% of total".format(sample_count, percent))
-		if epoch%10 == 0:
-			z.save(os.path.join(output_dir, 'Models', "VGG16_{}.model".format(epoch)))
-			trainer.save_checkpoint(os.path.join(output_dir, 'Models', "VGG16_{}_trainer.dnn".format(epoch)))
-	stop_profiler()
-	
-	return z
+			mb = reader.next_minibatch(minibatch_size, input_map=input_map)
+			stream_videos = streamOF['model'].eval(mb)
+			print('Stream:')
+			print('Mean: {:^6.5f}, std: {:^5.2f}, var: {:^5.2f}, max: {:^5.2f}, min: {:^5.2f}'.format(
+				np.average(stream_videos), np.std(stream_videos), np.var(stream_videos), 
+				np.amax(stream_videos), np.amin(stream_videos)))
+			print('VideoMb:')
+			print('Mean: {:^6.5f}, std: {:^5.2f}, var: {:^5.2f}, max: {:^5.2f}, min: {:^5.2f}'.format(
+				np.average(videos), np.std(videos), np.var(videos),	np.amax(videos), np.amin(videos)))
+			print(videos)
+			print('---------------------------')
+
 			
 # Get the video label based on its frames evaluations
 def getFinalLabel(predictedLabels, labelsConfidence):
@@ -374,47 +384,17 @@ if __name__ == '__main__':
 
 	#For training
 	newModelName   = "VVG16_2_videoOF_part1"
-	train_map_file = os.path.join(data_dir, "ucfTrainTestlist", "trainlist01.txt")
+	train_map_file = os.path.join(data_dir, "UCF-101_splits", "trainlist01.txt")
 	frames_dir	   = os.path.join(data_dir, "UCF-101_opticalFlow")
 	new_model_file = os.path.join(models_dir, newModelName)
 	output_dir	   = os.path.join(base_folder, "Output-{}".format(newModelName))
 	logFile		   = os.path.join(output_dir, "VGG16_log.txt")
-	#For evaluation
-	test_map_file  = os.path.join(data_dir, "UCF-101_splits", "testlist01.txt")
-	class_map_file = os.path.join(data_dir, "UCF-101_splits", "classInd.txt")
-	output_file	   = os.path.join(base_folder, "Results", "eval_{}.txt".format(newModelName))
 	
-	### Training ###
-	# if not os.path.exists(output_dir):
-		# os.mkdir(output_dir)
+	map_dir = os.path.join(data_dir, "UCF-101_ofMapFiles_split1")
+	train_mapFiles = [os.path.join(map_dir, f) for f in os.listdir(map_dir) if 'test' in f]
 	
-	# train_reader = VideoReader(train_map_file, frames_dir, image_width, image_height, stack_length, 
-								# num_classes, is_training=True)
-	# trained_model = train_model(train_reader, output_dir, logFile)
+	train_reader = VideoReader(train_map_file, frames_dir, image_width, image_height, stack_length, 
+								num_classes, is_training=True)
+	train_model(train_reader, output_dir, logFile, train_mapFiles)
 	
-	# trained_model.save(new_model_file)
-	# print("Stored trained model at %s" % new_model_file)
 	
-	test_model = "F:\TCC\Models\philly\VGG16_videoOF_trainingSession_two"
-	trained_model = load_model(test_model)
-	feature_node = find_by_name(trained_model, 'pre_input')
-	cloned_layers = combine([trained_model.outputs[0].owner]).clone(
-		CloneMethod.freeze, {feature_node: placeholder(name='features')})
-	input_var = input_variable((20, 224, 224))
-	trained_model = cloned_layers(input_var)
-	node_outputs = get_node_outputs(trained_model)
-	for out in node_outputs: print("{0} {1}".format(out.name, out.shape))
-	# raise Exception('oh my')
-	## Evaluation ###
-	if not (os.path.exists(output_file)):
-		# raise Exception('The file {} already exist.'.format(output_file))
-
-		with open(output_file, 'w') as results_file:
-			results_file.write('{:^15} | {:^15} | {:^15}\n'.format('Correct label', 'Predicted label', 'Confidence'))
-	
-	test_reader = VideoReader(test_map_file, frames_dir, image_width, image_height, stack_length, 
-								num_classes, is_training=False, classMapFile=class_map_file)
-	# evaluate model and write out the desired output
-	eval_and_write(trained_model, test_reader, output_file)
-	
-	print("Done. Wrote output to %s" % output_file)

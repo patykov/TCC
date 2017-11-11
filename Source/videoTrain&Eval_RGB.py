@@ -122,7 +122,7 @@ class VideoReader(object):
 
 		inputs	= np.empty(shape=(current_batch_size, self.sequence_length, self.channel_count, self.height, self.width), dtype=np.float32)
 		targets = np.empty(shape=(current_batch_size, self.sequence_length, self.label_count), dtype=np.float32)
-		for idx in xrange(self.batch_start, batch_end):
+		for idx in range(self.batch_start, batch_end):
 			index = self.indices[idx]
 			inputs[idx - self.batch_start, :, :, :, :] = self._select_features(self.video_files[index])
 			targets[idx - self.batch_start, :, :]	   = self.targets[index]
@@ -340,8 +340,8 @@ def eval_and_write(loaded_model, test_reader, output_file):
 		while sample_count < test_reader.size():
 			videos_, labels_, current_minibatch = test_reader.next_minibatch(1)
 			sample_count += current_minibatch
-			predictedLabels = dict((key, 0) for key in xrange(num_classes))
-			labelsConfidence = dict((key, 0) for key in xrange(num_classes))
+			predictedLabels = dict((key, 0) for key in range(num_classes))
+			labelsConfidence = dict((key, 0) for key in range(num_classes))
 			results = ''
 			for labels, videos in zip(labels_, videos_):
 				correctLabel = [j for j,v in enumerate(labels[0]) if v==1.0][0]
@@ -359,16 +359,16 @@ if __name__ == '__main__':
 	try_set_default_device(gpu(0))
 
 	#For training
-	newModelName   = "VGG_videoRGB-part2-eval2"
+	newModelName   = "VGG16_videoRGB_final_videomb"
 	network_path   = os.path.join(models_dir, "VGG16_ImageNet_CNTK.model")
-	train_map_file = os.path.join(data_dir, "ucfTrainTestlist", "trainlist01.txt")
+	train_map_file = os.path.join(data_dir, "UCF-101_splits", "trainlist01.txt")
 	frames_dir	   = os.path.join(data_dir, "UCF-101_rgb")
 	new_model_file = os.path.join(models_dir, newModelName)
 	output_dir	   = os.path.join(base_folder, "Output-{}".format(newModelName))
 	logFile		   = os.path.join(output_dir, "ResNet34_log.txt")
 	#For evaluation
-	test_map_file  = os.path.join(data_dir, "ucfTrainTestlist", "testlist01.txt")
-	class_map_file = os.path.join(data_dir, "ucfTrainTestlist", "classInd.txt")
+	test_map_file  = os.path.join(data_dir, "UCF-101_splits", "testlist01.txt")
+	class_map_file = os.path.join(data_dir, "UCF-101_splits", "classInd.txt")
 	output_file	   = os.path.join(base_folder, "Results", "eval_{}.txt".format(newModelName))
 	
 	### Training ###
@@ -382,8 +382,9 @@ if __name__ == '__main__':
 	# trained_model.save(new_model_file)
 	# print("Stored trained model at %s" % new_model_file)
 	
-	test_model = os.path.join("F:\TCC\Models\VGG_videoRGB-part2")
+	test_model = os.path.join("F:\TCC\Models\philly/VGG16_videoRGB_final.dnn")
 	trained_model = load_model(test_model)
+	trained_model = combine([trained_model.outputs[0].owner])
 	## Evaluation ###
 	if (os.path.exists(output_file)):
 		raise Exception('The file {} already exist.'.format(output_file))
