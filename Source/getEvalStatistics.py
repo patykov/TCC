@@ -30,7 +30,7 @@ if __name__ == '__main__':
 					else:
 						wrong[rightLabel]=1
 		
-	outputDir = 'F:/TCC/Results'
+	outputDir = 'E:/TCC/Results'
 	fileName = filePath.split('\\')[-1].split('.')[0]
 	outputPath = os.path.join(outputDir, '{}_statistics.txt'.format(fileName))
 	with open(outputPath, 'w') as file:

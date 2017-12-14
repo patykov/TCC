@@ -47,7 +47,7 @@ def get_RGBdiff_fine_tuning(base_model_path, feature_node_name='conv1_1', last_n
 	cloned_layers = mc.clone_layers(base_model_path, feature_node_name, last_node_name, freeze=False)
 	
 	# Create new conv layer
-	conv = C.layers.Convolution2D((3,3), 64, name='conv1_1', activation=None, pad=True, bias=True)
+	conv = C.layers.Convolution2D((3,3), 64, name=feature_node_name, activation=None, pad=True, bias=True)
 	new_conv = conv(pre_input)
 	
 	# New model

@@ -17,7 +17,7 @@ from models import *
 
 
 # Paths
-base_folder = "F:\TCC"
+base_folder = "E:\TCC"
 models_dir	= os.path.join(base_folder, "Models")
 data_dir	= os.path.join(base_folder, "Datasets")
 
@@ -373,7 +373,7 @@ if __name__ == '__main__':
 	try_set_default_device(gpu(0))
 
 	#For training
-	newModelName   = "VVG16_2_videoOF_part1"
+	newModelName   = "VGG16_videoOF_unitT"
 	train_map_file = os.path.join(data_dir, "ucfTrainTestlist", "trainlist01.txt")
 	frames_dir	   = os.path.join(data_dir, "UCF-101_opticalFlow")
 	new_model_file = os.path.join(models_dir, newModelName)
@@ -395,22 +395,15 @@ if __name__ == '__main__':
 	# trained_model.save(new_model_file)
 	# print("Stored trained model at %s" % new_model_file)
 	
-	test_model = "F:\TCC\Models\philly\VGG16_videoOF_trainingSession_two"
+	test_model = "E:/TCC/Models/philly/VGG16_videoOF_unitT.dnn"
 	trained_model = load_model(test_model)
-	feature_node = find_by_name(trained_model, 'pre_input')
-	cloned_layers = combine([trained_model.outputs[0].owner]).clone(
-		CloneMethod.freeze, {feature_node: placeholder(name='features')})
-	input_var = input_variable((20, 224, 224))
-	trained_model = cloned_layers(input_var)
-	node_outputs = get_node_outputs(trained_model)
-	for out in node_outputs: print("{0} {1}".format(out.name, out.shape))
-	# raise Exception('oh my')
+	
 	## Evaluation ###
-	if not (os.path.exists(output_file)):
-		# raise Exception('The file {} already exist.'.format(output_file))
+	if (os.path.exists(output_file)):
+		raise Exception('The file {} already exist.'.format(output_file))
 
-		with open(output_file, 'w') as results_file:
-			results_file.write('{:^15} | {:^15} | {:^15}\n'.format('Correct label', 'Predicted label', 'Confidence'))
+	with open(output_file, 'w') as results_file:
+		results_file.write('{:^15} | {:^15} | {:^15}\n'.format('Correct label', 'Predicted label', 'Confidence'))
 	
 	test_reader = VideoReader(test_map_file, frames_dir, image_width, image_height, stack_length, 
 								num_classes, is_training=False, classMapFile=class_map_file)

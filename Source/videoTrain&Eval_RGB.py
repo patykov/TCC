@@ -359,7 +359,7 @@ if __name__ == '__main__':
 	try_set_default_device(gpu(0))
 
 	#For training
-	newModelName   = "VGG16_videoRGB_final_videomb"
+	newModelName   = "VGG16_videoRGB_xforms_videoMb"
 	network_path   = os.path.join(models_dir, "VGG16_ImageNet_CNTK.model")
 	train_map_file = os.path.join(data_dir, "UCF-101_splits", "trainlist01.txt")
 	frames_dir	   = os.path.join(data_dir, "UCF-101_rgb")
@@ -382,7 +382,7 @@ if __name__ == '__main__':
 	# trained_model.save(new_model_file)
 	# print("Stored trained model at %s" % new_model_file)
 	
-	test_model = os.path.join("F:\TCC\Models\philly/VGG16_videoRGB_final.dnn")
+	test_model = os.path.join("F:\TCC\Models\philly/VGG16_videoRGB_xforms")
 	trained_model = load_model(test_model)
 	trained_model = combine([trained_model.outputs[0].owner])
 	## Evaluation ###

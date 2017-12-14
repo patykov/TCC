@@ -3,3 +3,5 @@ Outputs/
 Source/NotUsed/
 Data/
 Models/
+*.pyc
+NewSource/.ipynb_checkpoints/
