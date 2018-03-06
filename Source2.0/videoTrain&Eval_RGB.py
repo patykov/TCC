@@ -359,13 +359,13 @@ if __name__ == '__main__':
 	try_set_default_device(gpu(0))
 
 	#For training
-	newModelName   = "vgg_caffe_rgb_jitter_videoMB"
-	network_path   = os.path.join(models_dir, "VGG16_ImageNet_CNTK.model")
-	train_map_file = os.path.join(data_dir, "UCF-101_splits", "trainlist01.txt")
+	newModelName   = "vgg_caffe_rgb_random_videoMB"
+	# network_path   = os.path.join(models_dir, "VGG16_ImageNet_CNTK.model")
+	# train_map_file = os.path.join(data_dir, "UCF-101_splits", "trainlist01.txt")
 	frames_dir	   = os.path.join(data_dir, "UCF-101_rgb")
-	new_model_file = os.path.join(models_dir, newModelName)
-	output_dir	   = os.path.join(base_folder, "Output-{}".format(newModelName))
-	logFile		   = os.path.join(output_dir, "ResNet34_log.txt")
+	# new_model_file = os.path.join(models_dir, newModelName)
+	# output_dir	   = os.path.join(base_folder, "Output-{}".format(newModelName))
+	# logFile		   = os.path.join(output_dir, "ResNet34_log.txt")
 	#For evaluation
 	test_map_file  = os.path.join(data_dir, "UCF-101_splits", "testlist01.txt")
 	class_map_file = os.path.join(data_dir, "UCF-101_splits", "classInd.txt")
@@ -382,7 +382,7 @@ if __name__ == '__main__':
 	# trained_model.save(new_model_file)
 	# print("Stored trained model at %s" % new_model_file)
 	
-	test_model = os.path.join("E:/TCC/Models/new/vgg_caffe_rgb_jitter.model")
+	test_model = os.path.join("E:/TCC/Models/new/vgg_caffe_rgb_random.model")
 	trained_model = load_model(test_model)
 	trained_model = combine([trained_model.outputs[0].owner])
 	## Evaluation ###

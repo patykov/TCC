@@ -1,0 +1,15 @@
+{
+  // Model information
+  "base_model": "vgg16",
+
+  // Input parameters
+  "num_inputs": 20,
+  "map_dir": "E:/TCC/Datasets/OF_mapFiles_half",
+
+  // Output parameters
+  "output_dir": "E:/TCC",
+  "new_model_name": "of_test",
+
+  // Training parameters
+  "mb_size": 64
+}

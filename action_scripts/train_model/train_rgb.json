@@ -1,0 +1,18 @@
+{
+	// Learning parameters
+	"max_epochs": 3,
+	"mb_size": 32,
+	"l2_reg_weight": 0.0001,
+	"epoch_size": 1776542,
+    "lr_per_mb":  [
+		[0.01,  0.001],
+		[14000]],
+	"distributed": false,
+	
+	// Data parameters
+	"map_dir": "E:/TCC/Datasets/RGB_mapFiles",
+	
+	// Output parameters
+	"output_dir": "E:/TCC/action_scripts/models",
+	"new_model_name": "trained_cntk_rgb"
+}

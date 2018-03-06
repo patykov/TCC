@@ -1,0 +1,19 @@
+{
+	// Learning parameters
+	"max_epochs": 24,
+	"mb_size": 32,
+	"l2_reg_weight": 0.0001,
+	"epoch_size": 843030,
+    "lr_per_mb":  [
+		[0.01,  0.001, 0.0001],
+		[50000, 20000]],
+	"distributed": false,
+	
+	// Data parameters
+	"model_config_path": "C:/Users/t-pakova/Documents/action_scripts_data/models/new_of.json",
+	"map_dir": "C:/Users/t-pakova/OneDrive - Microsoft/TCC/Datasets/ucfTrainTestlist",
+	
+	// Output parameters
+	"output_dir": "C:/Users/t-pakova/Documents/action_scripts_data/models",
+	"new_model_name": "trained_of"
+}

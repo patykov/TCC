@@ -14,6 +14,7 @@ import os
 import re
 from PIL import Image
 from models import *
+import cntk as C
 
 
 # Paths
@@ -348,14 +349,21 @@ def getFinalLabel(predictedLabels, labelsConfidence):
 def eval_and_write(loaded_model, test_reader, output_file):
 	sample_count = 0
 	results = ''
+	inputs = []
+	for i in range(20):
+		inputs.append(C.logging.graph.find_by_name(trained_model, 'input_{}'.format(i)))
 	with open(output_file, 'a') as file:
 		while sample_count < test_reader.size():
 			videos, labels, current_minibatch = test_reader.next_minibatch(1)
+			input_map = {}
+			for i,v in enumerate(videos[0][:20]):
+				print(inputs[i%20], i)
+				input_map[inputs[i%10]] = v
 			sample_count += current_minibatch
 			predictedLabels = dict((key, 0) for key in range(num_classes))
 			labelsConfidence = dict((key, 0) for key in range(num_classes))
 			correctLabel = [j for j,v in enumerate(labels[0][0]) if v==1.0][0]
-			output = loaded_model.eval({loaded_model.arguments[0]:videos[0]})
+			output = loaded_model.eval(input_map)
 			predictions = softmax(np.squeeze(output)).eval()
 			top_classes = [np.argmax(p) for p in predictions]
 			for i, c in enumerate(top_classes):
@@ -373,7 +381,7 @@ if __name__ == '__main__':
 	try_set_default_device(gpu(0))
 
 	#For training
-	newModelName   = "VGG16_videoOF_unitT"
+	newModelName   = "of_new_random2-eval-again"
 	train_map_file = os.path.join(data_dir, "ucfTrainTestlist", "trainlist01.txt")
 	frames_dir	   = os.path.join(data_dir, "UCF-101_opticalFlow")
 	new_model_file = os.path.join(models_dir, newModelName)
@@ -395,7 +403,7 @@ if __name__ == '__main__':
 	# trained_model.save(new_model_file)
 	# print("Stored trained model at %s" % new_model_file)
 	
-	test_model = "E:/TCC/Models/philly/VGG16_videoOF_unitT.dnn"
+	test_model = "E:/TCC/Models/of_new_random2.model"
 	trained_model = load_model(test_model)
 	
 	## Evaluation ###

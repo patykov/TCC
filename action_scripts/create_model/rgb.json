@@ -1,0 +1,17 @@
+{
+  // Model information
+  "base_model": "E:/TCC/Models/base_model/VGG16_ImageNet_Caffe.model",
+  "first_node_name": "data", 
+  "last_node_name": "drop7",
+
+  // Input parameters
+  "num_inputs": 1,
+  "map_dir": "E:/TCC/Datasets/RGB_mapFiles",
+  
+  // Output parameters
+  "output_dir": "E:/TCC",
+  "new_model_name": "rgb_test",
+
+  // Training parameters
+  "mb_size": 64
+}

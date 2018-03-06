@@ -19,7 +19,10 @@ import shutil
 
 # Create a minibatch source.
 def create_video_mb_source(map_file, num_channels, image_height, image_width, num_classes, max_epochs):
-	transforms = [xforms.crop(crop_type='center', crop_size=224)]
+	transforms = [
+		xforms.crop(crop_type='center', crop_size=224),
+		xforms.scale(width=image_width, height=image_height, channels=num_channels, interpolations='linear')
+	]
 	
 	return MinibatchSource(ImageDeserializer(map_file, StreamDefs(
 				features = StreamDef(field='image', transforms=transforms),
@@ -95,14 +98,12 @@ if __name__ == '__main__':
 	output_dir = 'E:/TCC/Results/new'
 	# For evaluation
 	test_mapFile = os.path.join(map_dir, 'testMap_1.txt')
-	output_file = os.path.join(output_dir, "eval_vgg_caffe_rgb_center.txt")
+	output_file = os.path.join(output_dir, "eval_vgg_caffe_rgb_clone80k.txt")
 
-	trained_model = load_model('E:/TCC/Models/new/vgg_caffe_rgb_center.model')
+	trained_model = load_model('E:/TCC/Models/new/vgg_caffe_rgb_clone80k.model')
 	trained_model = combine([trained_model.outputs[0].owner])
 	
 	## Evaluation ###
 	eval_and_write(trained_model, test_mapFile, output_file)
 	
 	print("Done. Wrote output to %s" % output_file)
-	
-	Communicator.finalize()

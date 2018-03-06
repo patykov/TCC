@@ -1,0 +1,18 @@
+{
+	// Learning parameters
+	"max_epochs": 3,
+	"mb_size": 32,
+	"l2_reg_weight": 0.0001,
+	"epoch_size": 1728857,
+    "lr_per_mb":  [
+		[0.005, 0.0005, 0.00005],
+		[12000, 6000]],
+	"distributed": true,
+	
+	// Data parameters
+	"map_dir": "E:/TCC/Datasets/RGBdiff_mapFiles",
+	
+	// Output parameters
+	"output_dir": "E:/TCC/Outputs",
+	"new_model_name": "vgg16_caffe_rgbdiff"
+}

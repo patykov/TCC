@@ -1,7 +1,7 @@
 import cntk as C
 import inspect
 import json
-
+import os
 
 def clone_layers(base_model_path, feature_node_name, last_node_name, freeze):
 	base_model	 = C.load_model(base_model_path)
@@ -10,7 +10,7 @@ def clone_layers(base_model_path, feature_node_name, last_node_name, freeze):
 
 	# Clone the desired layers
 	cloned_layers = C.combine([last_node.owner]).clone(C.CloneMethod.freeze 
-		if freeze else C.CloneMethod.clone, {feature_node: C.placeholder(name='features')})
+		if freeze else C.CloneMethod.share, {feature_node: C.placeholder(name='features')})
 	
 	return cloned_layers
 			
@@ -43,11 +43,8 @@ def save_model(stream_func, wanted_args, model, output_path):
 	func_args, _, _, defaults = inspect.getargspec(stream_func)
 	config_data = {a: d for (a,d) in zip(func_args, defaults)}
 	config_data.update(wanted_args)
-	
 	node_outputs = C.logging.get_node_outputs(model)
 	config_data['last_node_name'] = node_outputs[0].name
-	if 'num_inputs' not in config_data:
-		config_data['num_inputs'] = 1
 	
 	with open(config_output_file, 'w') as file:
 		json.dump(config_data, file, indent=4)
@@ -56,7 +53,9 @@ def save_model(stream_func, wanted_args, model, output_path):
 def fetch_model(model_config_file):
 	# Assume model_file and config_model_file have the same name and are in the same dir
 	model_file = model_config_file.replace('json', 'model')
-	z = C.load_model(model_file)
+	if not os.path.isfile(model_file):
+		model_file = model_config_file.replace('json', 'dnn')
+	z = C.Function.load(model_file)
 	
 	# Loading model and ancillary data
 	with open(model_config_file) as json_file:
@@ -64,7 +63,7 @@ def fetch_model(model_config_file):
 		
 	label_var = C.input_variable(base_model_data['num_classes'])
 		
-	return networkDict(z, label_var, z.arguments), base_model_data
+	return networkDict(z, z.outputs[0], z.arguments), base_model_data
 	
 def print_layers(z):
 	node_outputs = C.logging.get_node_outputs(z)

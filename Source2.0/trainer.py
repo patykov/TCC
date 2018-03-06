@@ -19,7 +19,7 @@ def train(model_name, network, train_reader, input_map, learner, mb_size, epoch_
 		   max_epochs, output_dir, log_file, profiling=False, distributed=True):
 
 	# Printer
-	progress_printer = C.logging.ProgressPrinter(tag='Training', log_to_file=log_file, 
+	progress_printer = C.logging.ProgressPrinter(freq=10, tag='Training', log_to_file=log_file, 
 										num_epochs=max_epochs, gen_heartbeat=True, 
 										rank=C.Communicator.rank() if distributed else None)
 	
@@ -38,8 +38,10 @@ def train(model_name, network, train_reader, input_map, learner, mb_size, epoch_
 													restore=True, frequency=int(epoch_size/2))
 	).train()
 
+	trainer.save_checkpoint(os.path.join(output_dir, "{}.model".format(model_name)))
+	
 	if profiling:
 		C.debbuging.stop_profiler()
 	
-	if learner.communicator().is_main():
-		trainer.model.save_model(os.path.join(output_dir, "{}.model".format(model_name)))
+	if distributed:
+		C.Communicator.finalize()

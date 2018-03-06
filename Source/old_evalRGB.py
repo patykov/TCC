@@ -209,7 +209,7 @@ class VideoReader(object):
 		multiView = [img1, img2, img3, img4, img5, img6, img7, img8, img9, img10]
 		
 		return map(self.formatImg, multiView)
-
+		
 	def randomCrop(self, img, newWidth, newHeight):
 		width = img.size[0]
 		height = img.size[1]

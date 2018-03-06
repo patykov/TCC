@@ -3,6 +3,7 @@ import basic_models as m
 import cntk as C
 import model_configuration as mc
 import os
+import numpy as np
 
 
 def get_OF_from_scratch(model_name='vgg16', dropout=0.9, num_inputs=20, num_classes=101, 
@@ -26,14 +27,14 @@ def get_OF_from_scratch(model_name='vgg16', dropout=0.9, num_inputs=20, num_clas
 	
 	return mc.networkDict(z, label_var, inputs)
 
-def get_RGB_fine_tuning(base_model_path=None, feature_node_name='data', last_node_name='drop7',
+def get_RGB_fine_tuning(base_model_path=None, freeze=True, feature_node_name='data', last_node_name='drop7',
 						num_classes=101, num_channels=3, image_height=224, image_width=224):
 	# Input variables
-	input_var = C.input_variable((num_channels, image_height, image_width))
+	input_var = C.input_variable((num_channels, image_height, image_width), name=feature_node_name)
 	label_var = C.input_variable(num_classes)
 	
 	# Clone layers from base model
-	cloned_layers = mc.clone_layers(base_model_path, feature_node_name, last_node_name, freeze=True)
+	cloned_layers = mc.clone_layers(base_model_path, feature_node_name, last_node_name, freeze=freeze)
 
 	# Add new dense layer for class prediction
 	cloned_out = cloned_layers(input_var)
@@ -41,7 +42,7 @@ def get_RGB_fine_tuning(base_model_path=None, feature_node_name='data', last_nod
 	
 	return mc.networkDict(z, label_var, [input_var])
 
-def get_RGBdiff_fine_tuning(base_model_path=None, feature_node_name='conv1_1', last_node_name='fc101',
+def get_old_RGBdiff_fine_tuning(base_model_path=None, after_feature_node_name='conv1_1', last_node_name='drop7',
 							num_inputs=5, num_classes=101, num_channels=3, image_height=224, 
 							image_width=224):
 	
@@ -54,14 +55,48 @@ def get_RGBdiff_fine_tuning(base_model_path=None, feature_node_name='conv1_1', l
 	pre_input = C.ops.splice(*(i for i in new_inputs), axis=0, name='pre_input')
 
 	# Clone layers from base model
-	cloned_layers = mc.clone_layers(base_model_path, feature_node_name, last_node_name, freeze=False)
+	cloned_layers = mc.clone_layers(base_model_path, after_feature_node_name, last_node_name, freeze=False)
 	
-	# Create new conv layer
-	conv = C.layers.Convolution2D((3,3), 64, name=feature_node_name, activation=None, pad=True, bias=True)
+	# Create new first conv layer
+	conv = C.layers.Convolution2D((3,3), 64, name=after_feature_node_name, activation=None, pad=True, bias=True)
 	new_conv = conv(pre_input)
 	
-	# New model
-	z = cloned_layers(new_conv)
+	cloned_out = cloned_layers(new_conv)
+	z = C.layers.Dense(num_classes, activation=None, name='fc{}'.format(num_classes)) (cloned_out)
+	
+	return mc.networkDict(z, label_var, inputs)
+
+	
+def get_RGBdiff_fine_tuning(base_model_path=None, after_feature_node_name='conv1_1', last_node_name='drop7',
+							num_inputs=5, num_classes=101, num_channels=3, image_height=224, 
+							image_width=224):
+	
+	# Label variable
+	label_var = C.input_variable(num_classes)
+	
+	# Input variable
+	inputs = mc.get_multiple_inputs(num_inputs, num_channels, image_height, image_width)
+	new_inputs = [inputs[i] - inputs[i+1] for i in range(len(inputs)-1)]
+	pre_input = C.ops.splice(*(i for i in new_inputs), axis=0, name='pre_input')
+
+	# Clone layers from base model
+	cloned_layers = mc.clone_layers(base_model_path, after_feature_node_name, last_node_name, freeze=False)
+	
+	# Create new first conv layer
+	conv = C.layers.Convolution2D((3,3), 64, name=after_feature_node_name, activation=None, pad=True, bias=True)
+	new_conv = conv(pre_input)
+	
+	# Copy parameters from old conv
+	old_conv = C.logging.graph.find_by_name(C.load_model(base_model_path), after_feature_node_name)
+	old_param = [p.value for p in old_conv.parameters]
+	old_param[0] = np.concatenate([old_param[0]]*(num_inputs-1), axis=1) #need to change the shape
+	for i in range(len(new_conv.parameters)):
+		print(i, new_conv.parameters[i].shape, old_param[i].shape)
+		new_conv.parameters[i].value = old_param[i]
+	
+	# Add new dense layer for class prediction
+	cloned_out = cloned_layers(new_conv)
+	z = C.layers.Dense(num_classes, activation=None, name='fc{}'.format(num_classes)) (cloned_out)
 	
 	return mc.networkDict(z, label_var, inputs)
 	

@@ -5,6 +5,7 @@ from cntk.io import ImageDeserializer, MinibatchSource, StreamDef, StreamDefs
 import cntk.io.transforms as xforms
 from cntk.logging.graph import find_by_name, get_node_outputs
 from cntk.ops import softmax, combine
+from cntk.train.training_session import *
 import numpy as np
 import os
 
@@ -51,7 +52,7 @@ def eval_and_write(network, test_mapFiles, output_file):
 	image_width	 = 224
 	num_classes	 = 101
 	num_channels = 3
-	num_inputs   = 20#5
+	num_inputs   = 5#20
 	
 	# Create test reader
 	test_reader = create_video_mb_source(test_mapFiles, num_channels, image_height, image_width, num_classes)
@@ -90,21 +91,27 @@ def eval_and_write(network, test_mapFiles, output_file):
 	with open(output_file, 'w') as file:
 		file.write(results)
 
-	
-if __name__ == '__main__':
 
-	try_set_default_device(gpu(0))
+if __name__ == '__main__':
+	parser = argparse.ArgumentParser()
+	parser.add_argument('-datadir', '--datadir', help='Data directory where the dataset is located', required=False)
+	parser.add_argument('-outputdir', '--outputdir', help='Output directory for checkpoints and models', required=False, default=None)
+	parser.add_argument('-logdir', '--logdir', help='Log file', required=False, default=None)
+	parser.add_argument('-profile', '--profile', help="Turn on profiling", action='store_true', default=False)
+	parser.add_argument('-modelName', help="Model to be evaluated", required=False, default=False)
+	args = parser.parse_args()
 	
 	# Paths
-	data_dir = "E:/TCC/Datasets"
-	model_name   = "vgg_caffe_of_256.model"
-	map_dir = os.path.join(data_dir, "OF_mapFiles_half")#"RGBdiff_mapFiles")
-	output_dir = "E:/TCC/Results/new"
-	test_mapFiles  = sorted([os.path.join(map_dir, f) for f in os.listdir(map_dir) if 'test' in f])
-	output_file	   = os.path.join(output_dir, "eval_{}.txt".format(model_name))
+	data_dir = args.datadir
+	logFile = args.logdir
+	map_dir = os.path.join(data_dir, "RGBdiff_mapFiles")#"OF_mapFiles_half")
+	model_name = args.modelName
+	output_dir = args.outputdir
+	test_mapFiles = sorted([os.path.join(map_dir, f) for f in os.listdir(map_dir) if 'test' in f])
+	output_file = os.path.join(output_dir, "eval_{}.txt".format(model_name))
 	
 	# Load Temporal VGG
-	trained_model  = load_model('E:/TCC/Models/new/{}'.format(model_name))
+	trained_model  = load_model(os.path.join('E:/tcc/models/new', model_name))
 	trained_model = combine([trained_model.outputs[0].owner])
 
 	# evaluate model and write out the desired output
