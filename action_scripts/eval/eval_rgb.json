@@ -1,0 +1,8 @@
+{
+  // Model information
+  "model_path": "E:/TCC/Models/new/vgg_caffe_rgb_random.model",
+
+  // Input parameters
+  "num_inputs": 1,
+  "map_dir": "E:/TCC/Datasets/RGB_mapFiles"
+}

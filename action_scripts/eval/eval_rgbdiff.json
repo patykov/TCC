@@ -1,0 +1,15 @@
+{
+  // Model information
+  "model_path": "E:/TCC/Models/new/vggcaffe_rgbdiff2_base_random_normal.model",
+
+  // Input parameters
+  "num_inputs": 5,
+  "map_dir": "E:/TCC/Datasets/RGBdiff_mapFiles",
+  "inputs_name": [
+        "input_0",
+        "input_1",
+        "input_2",
+        "input_3",
+        "input_4"
+      ]
+}

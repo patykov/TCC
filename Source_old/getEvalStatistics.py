@@ -1,9 +1,8 @@
-import argparse
 import sys
 import os
 
-
-def get_statistics(filePath, outputDir):
+if __name__ == '__main__':
+	filePath = sys.argv[1]
 	right = dict()
 	wrong = dict()
 	numRight = 0
@@ -31,6 +30,7 @@ def get_statistics(filePath, outputDir):
 					else:
 						wrong[rightLabel]=1
 		
+	outputDir = 'E:/TCC/Results'
 	fileName = filePath.split('\\')[-1].split('.')[0]
 	outputPath = os.path.join(outputDir, '{}_statistics.txt'.format(fileName))
 	with open(outputPath, 'w') as file:
@@ -41,17 +41,3 @@ def get_statistics(filePath, outputDir):
 		for k, v in right.items():
 			precision = (float(v)*100)/(v+wrong[k] if k in wrong.keys() else v)
 			file.write('{:<3} ----> {:<5.2f}%\n'.format(k, precision))
-
-
-
-if __name__ == '__main__':
-	parser = argparse.ArgumentParser()
-	parser.add_argument('-file_path', help="Full path to the evaluation file", 
-						required=True)
-	parser.add_argument('-output_dir', help='Output directory', 
-						required=False, default="E:/TCC/Results/new")
-	args = parser.parse_args()
-	
-	get_statistics(args.file_path, args.output_dir)
-	
-	

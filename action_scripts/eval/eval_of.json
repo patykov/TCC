@@ -1,0 +1,8 @@
+{
+  // Model information
+  "model_path": "E:/TCC/Models/new/vgg_caffe_of_9_random.model",
+
+  // Input parameters
+  "num_inputs": 20,
+  "map_dir": "E:/TCC/Datasets/OF_mapFiles_half"
+}
